@@ -1,0 +1,30 @@
+#                                               -*- Autoconf -*-
+# Process this file with autoconf to produce a configure script.
+
+AC_PREREQ(2.61)
+AC_INIT([contents-delivery-manager],[1.0.0],[https://github.com/switchbrew/contents-delivery-manager/issues])
+AC_CONFIG_SRCDIR([source/manager.c])
+
+AM_INIT_AUTOMAKE([subdir-objects])
+
+AC_CANONICAL_BUILD
+AC_CANONICAL_HOST
+
+AC_PROG_CC
+
+AC_SYS_LARGEFILE
+
+NET_LIBS=""
+
+case "$host" in
+   *-*-mingw*)
+      NET_LIBS="-lws2_32"
+      CFLAGS="$CFLAGS -D__USE_MINGW_ANSI_STDIO"
+      ;;
+esac
+
+CFLAGS="$CFLAGS -std=gnu99"
+
+AC_SUBST(NET_LIBS)
+AC_CONFIG_FILES([Makefile])
+AC_OUTPUT
