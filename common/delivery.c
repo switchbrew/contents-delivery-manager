@@ -59,29 +59,53 @@ static int set_socket_nonblocking(int sock, bool nonblock) {
     return 0;
 }
 
+void socket_error(const char *msg) {
+#ifndef _WIN32
+    perror(msg);
+#else
+    wchar_t *s = NULL;
+    FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+               NULL, WSAGetLastError(),
+               MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+               (LPWSTR)&s, 0, NULL);
+    fprintf(stderr, "%S\n", s);
+    LocalFree(s);
+#endif
+}
+
 // This implements the socket setup done by nim cmd76 (SendSystemUpdate task-creation).
-int deliveryManagerCreateServerSocket(DeliveryManager *d) {
+Result deliveryManagerCreateServerSocket(DeliveryManager *d) {
     int sockfd=-1;
     int ret=0;
+    Result res=0;
 
     ret = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (ret >= 0) sockfd = ret;
+    if (ret >= 0) {
+        sockfd = ret;
+        ret = 0;
+    }
+    else socket_error("socket");
 
-    if (ret >= 0) ret = set_socket_nonblocking(sockfd, true);
+    if (ret == 0) {
+        ret = set_socket_nonblocking(sockfd, true);
+        if (ret != 0) socket_error("set_socket_nonblocking");
+    }
 
     #ifdef __SWITCH__
-    if (ret >= 0) {
+    if (ret == 0) {
         u64 tmpval=1;
         ret = setsockopt(sockfd, SOL_SOCKET, SO_VENDOR + 0x1, &tmpval, sizeof(tmpval));
+        if (ret != 0) socket_error("setsockopt");
     }
     #endif
 
-    if (ret >= 0) {
+    if (ret == 0) {
         u32 tmpval2=1;
         ret = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &tmpval2, sizeof(tmpval2));
+        if (ret != 0) socket_error("setsockopt");
     }
 
-    if (ret >= 0) {
+    if (ret == 0) {
         struct sockaddr_in serv_addr;
 
         memset(&serv_addr, 0, sizeof(serv_addr));
@@ -90,28 +114,46 @@ int deliveryManagerCreateServerSocket(DeliveryManager *d) {
         serv_addr.sin_port = htons(d->port);
 
         ret = bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+        if (ret != 0) socket_error("bind");
     }
 
-    if (ret >= 0) ret = listen(sockfd, 1);
+    if (ret == 0) {
+        ret = listen(sockfd, 1);
+        if (ret != 0) socket_error("listen");
+    }
 
-    if (ret >= 0) d->listen_sockfd = sockfd;
+    if (ret == 0) d->listen_sockfd = sockfd;
 
-    // TODO: error handling
-    if (ret < 0) shutdownSocket(&sockfd);
-    return ret;
+    if (ret != 0) shutdownSocket(&sockfd);
+
+    if (ret != 0 && res==0) {
+        if (d->cancel_flag) res = MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled); // TODO: mutex
+        else if (errno==ENETDOWN || errno==ECONNRESET || errno==EHOSTDOWN || errno==EHOSTUNREACH || errno==EPIPE) res = MAKERESULT(Module_Nim, NimError_DeliverySocketError); // TODO: windows
+        else res = MAKERESULT(Module_Nim, NimError_UnknownError);
+    }
+
+    return res;
 }
 
 // This implements the socket setup done by nim cmd69 (ReceiveSystemUpdate task-creation).
-int deliveryManagerCreateClientSocket(DeliveryManager *d) {
+Result deliveryManagerCreateClientSocket(DeliveryManager *d) {
     int sockfd=-1;
     int ret=0;
+    Result res=0;
 
     ret = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (ret >= 0) sockfd = ret;
-
-    if (ret >= 0) ret = set_socket_nonblocking(sockfd, true);
-
     if (ret >= 0) {
+        sockfd = ret;
+        ret = 0;
+    }
+    else socket_error("socket");
+
+    if (ret == 0) {
+        ret = set_socket_nonblocking(sockfd, true);
+        if (ret != 0) socket_error("set_socket_nonblocking(true)");
+    }
+
+    if (ret == 0) {
         struct sockaddr_in serv_addr;
 
         memset(&serv_addr, 0, sizeof(serv_addr));
@@ -122,30 +164,48 @@ int deliveryManagerCreateClientSocket(DeliveryManager *d) {
         ret = connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
 
         // nim uses select(), we use poll() instead. TODO: windows
-        if (ret < 0 && errno == EINPROGRESS) {
-            struct pollfd fds = {.fd = sockfd, .events = POLLOUT, .revents = 0};
-            ret = poll(&fds, 1, 5000);
-            if (ret == 0 || (fds.revents & (POLLERR|POLLHUP))) ret = -1; // TODO: handle timeout error
+        if (ret != 0) {
+            if (errno != EINPROGRESS) socket_error("connect");
+            else {
+                struct pollfd fds = {.fd = sockfd, .events = POLLOUT, .revents = 0};
+                ret = poll(&fds, 1, 5000);
+                if (ret < 0) socket_error("poll");
+                else if (ret == 0 || (fds.revents & (POLLERR|POLLHUP))) {
+                    ret = -1;
+                    res = MAKERESULT(Module_Nim, NimError_DeliveryConnectionTimeout);
+                    fprintf(stderr, "connection timeout/reset by peer.\n");
+                }
+            }
         }
     }
 
     #ifdef __SWITCH__
-    if (ret >= 0) {
+    if (ret == 0) {
         u64 tmpval=1;
         ret = setsockopt(sockfd, SOL_SOCKET, SO_VENDOR + 0x1, &tmpval, sizeof(tmpval));
+        if (ret != 0) socket_error("setsockopt");
     }
     #endif
 
-    if (ret >= 0) ret = set_socket_nonblocking(sockfd, false);
+    if (ret == 0) {
+        ret = set_socket_nonblocking(sockfd, false);
+        if (ret != 0) socket_error("set_socket_nonblocking(false)");
+    }
 
-    if (ret >= 0) d->conn_sockfd = sockfd;
+    if (ret == 0) d->conn_sockfd = sockfd;
 
-    // TODO: error handling
-    if (ret < 0) shutdownSocket(&sockfd);
-    return ret;
+    if (ret != 0) shutdownSocket(&sockfd);
+
+    if (ret != 0 && res==0) {
+        if (d->cancel_flag) res = MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled); // TODO: mutex
+        else if (errno==ENETDOWN || errno==ECONNRESET || errno==EHOSTDOWN || errno==EHOSTUNREACH || errno==EPIPE) res = MAKERESULT(Module_Nim, NimError_DeliverySocketError); // TODO: windows
+        else res = MAKERESULT(Module_Nim, NimError_UnknownError);
+    }
+
+    return res;
 }
 
-int deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_addr *addr, u16 port) {
+Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_addr *addr, u16 port) {
     memset(d, 0, sizeof(*d));
 
     d->server = server;

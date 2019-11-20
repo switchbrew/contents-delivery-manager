@@ -16,6 +16,8 @@ typedef uint16_t u16;
 typedef uint8_t u8;
 typedef int64_t s64;
 
+typedef u32 Result;                 ///< Function error code result type.
+
 #define BIT(n) (1U << (n))
 
 static inline uint16_t __local_bswap16(uint16_t x) {

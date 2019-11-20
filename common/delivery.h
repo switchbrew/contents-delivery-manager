@@ -1,4 +1,6 @@
+#pragma once
 #include "types.h"
+#include "result.h"
 
 /// Default port.
 #define DELIVERY_PORT_DEFAULT 55556
@@ -20,6 +22,7 @@ typedef enum {
 
 /// DeliveryManager
 typedef struct {
+    bool cancel_flag;
     bool server;
     struct in_addr addr;
     u16 port;
@@ -37,7 +40,7 @@ typedef struct {
 } DeliveryMessage;
 
 /// Create a \ref DeliveryManager.
-int deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_addr *addr, u16 port);
+Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_addr *addr, u16 port);
 
 /// Close a \ref DeliveryManager.
 void deliveryManagerClose(DeliveryManager *d);
