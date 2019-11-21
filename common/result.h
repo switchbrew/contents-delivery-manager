@@ -40,10 +40,10 @@ enum {
 /// Nim error codes
 enum {
     NimError_BadInput=40,                     ///< Memory allocation failed / bad input.
-    NimError_UnknownError=284,                ///< Too many internal output entries with nim cmd42, system is Internet-connected, or an unrecognized socket error occured.
     NimError_BadContentMetaType=330,          ///< ContentMetaType doesn't match SystemUpdate.
     NimError_DeliverySocketError=5001,        ///< One of the following socket errors occurred: ENETDOWN, ECONNRESET, EHOSTDOWN, EHOSTUNREACH, or EPIPE. Also occurs when the received size doesn't match the expected size (recvfrom() ret with size0 data receiving). May also occur when {same cause as NimError_DeliveryOperationCancelled} occurs.
     NimError_DeliveryOperationCancelled=5010, ///< Socket was shutdown() due to the async operation being cancelled.
+    NimError_UnknownError=5020,               ///< Too many internal output entries with nim cmd42, system is Internet-connected, or an unrecognized socket error occured.
     NimError_DeliveryConnectionTimeout=5100,  ///< Connection timeout.
     NimError_DeliveryBadMessageId=5410,       ///< Invalid ID.
     NimError_DeliveryBadMessageMagicnum=5420, ///< Invalid magicnum.

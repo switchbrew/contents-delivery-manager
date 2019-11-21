@@ -140,13 +140,13 @@ static Result _deliveryManagerCreateServerSocket(DeliveryManager *d) {
         if (ret != 0) socket_error("listen");
     }
 
-    if (ret == 0) d->listen_sockfd = sockfd;
-
-    if (ret != 0) shutdownSocket(&sockfd);
-
     if (ret != 0 && R_SUCCEEDED(rc)) {
         rc = _deliveryManagerGetSocketError(d);
     }
+
+    if (ret == 0) d->listen_sockfd = sockfd;
+
+    if (ret != 0) shutdownSocket(&sockfd);
 
     return rc;
 }
@@ -191,6 +191,7 @@ static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
                     rc = MAKERESULT(Module_Nim, NimError_DeliveryConnectionTimeout);
                     fprintf(stderr, "connection timeout/reset by peer.\n");
                 }
+                else ret=0;
             }
         }
     }
@@ -208,12 +209,95 @@ static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
         if (ret != 0) socket_error("set_socket_nonblocking(false)");
     }
 
+    if (ret != 0 && R_SUCCEEDED(rc)) {
+        rc = _deliveryManagerGetSocketError(d);
+    }
+
     if (ret == 0) d->conn_sockfd = sockfd;
 
     if (ret != 0) shutdownSocket(&sockfd);
 
+    return rc;
+}
+
+// This implements the func called from the socket-setup loop from the nim Send async thread.
+static Result _deliveryManagerServerTaskWaitConnection(DeliveryManager *d) {
+    int ret=0;
+    Result rc=0;
+
+    while (ret==0) {
+        if (_deliveryManagerGetCancelled(d)) return MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
+
+        struct pollfd fds = {.fd = d->listen_sockfd, .events = POLLIN, .revents = 0};
+        ret = poll(&fds, 1, 1000);
+        if (ret < 0) return _deliveryManagerGetSocketError(d);
+        if (ret>0 && !(fds.revents & POLLIN)) ret = 0;
+    }
+
+    return rc;
+}
+
+// This implements the socket setup done by the nim Send async thread.
+static Result _deliveryManagerServerTaskSocketSetup(DeliveryManager *d) {
+    int sockfd=-1;
+    int ret=0;
+    Result rc=0;
+
+    while (R_SUCCEEDED(rc = _deliveryManagerServerTaskWaitConnection(d))) {
+        struct sockaddr_in sa_remote={0};
+        socklen_t addrlen = sizeof(sa_remote);
+        ret = accept(d->listen_sockfd, (struct sockaddr*)&sa_remote, &addrlen);
+        if (ret < 0) break;
+        sockfd = ret;
+        ret = 0;
+        // nim would validate that the address from sa_remote matches the address previously used with bind() here, however we won't do that.
+        break;
+    }
+    if (R_FAILED(rc)) return rc;
+
+    #ifdef __SWITCH__
+    if (ret == 0) {
+        u64 tmpval=1;
+        ret = setsockopt(sockfd, SOL_SOCKET, SO_VENDOR + 0x1, &tmpval, sizeof(tmpval));
+        if (ret != 0) socket_error("setsockopt");
+    }
+    #endif
+
+    // nim would use nifm cmd GetInternetConnectionStatus here, returning an error when successful. We won't do that.
+
+    if (ret == 0) {
+        ret = set_socket_nonblocking(sockfd, false);
+        if (ret != 0) socket_error("set_socket_nonblocking(false)");
+    }
+
+    // nim ignores errors from this.
+    if (ret == 0) {
+        u32 tmpval=0x4000;
+        setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &tmpval, sizeof(tmpval));
+    }
+
+    // nim ignores errors from this.
+    if (ret == 0) {
+        u32 tmpval=0x20000;
+        setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &tmpval, sizeof(tmpval));
+    }
+
     if (ret != 0 && R_SUCCEEDED(rc)) {
         rc = _deliveryManagerGetSocketError(d);
+    }
+
+    if (ret == 0) d->conn_sockfd = sockfd;
+
+    if (ret != 0) shutdownSocket(&sockfd);
+
+    return rc;
+}
+
+static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
+    Result rc=0;
+
+    while (R_SUCCEEDED(rc)) {
+        // TODO
     }
 
     return rc;
@@ -223,7 +307,14 @@ static void* _deliveryManagerServerTask(void* arg) {
     DeliveryManager *d = arg;
     Result rc=0;
 
+    // nim would load "nim.errorsimulate!error_localcommunication_result" into rc here, we won't do an equivalent.
+
+    rc = _deliveryManagerServerTaskSocketSetup(d);
+    if (R_SUCCEEDED(rc)) rc = _deliveryManagerServerTaskMessageHandler(d);
+
+    pthread_mutex_lock(&d->mutex);
     d->rc = rc;
+    pthread_mutex_unlock(&d->mutex);
     return NULL;
 }
 
@@ -278,7 +369,11 @@ void deliveryManagerCancel(DeliveryManager *d) {
 }
 
 Result deliveryManagerGetResult(DeliveryManager *d) {
+    Result rc=0;
     pthread_join(d->thread, NULL);
-    return d->rc;
+    pthread_mutex_lock(&d->mutex);
+    rc = d->rc;
+    pthread_mutex_unlock(&d->mutex);
+    return rc;
 }
 
