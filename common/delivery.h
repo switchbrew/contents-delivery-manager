@@ -32,6 +32,9 @@ typedef struct {
     int listen_sockfd;
     int conn_sockfd;
     Result rc;
+
+    s64 progress_current_size;
+    s64 progress_total_size;
 } DeliveryManager;
 
 /// DeliveryMessageHeader
@@ -42,6 +45,12 @@ typedef struct {
     u16 meta_size;        ///< Must be <=0x1000.
     s64 data_size;        ///< Must not be negative.
 } DeliveryMessageHeader;
+
+typedef struct {
+    u8 content_id[0x10];  ///< NcmContentId
+    u8 flag;              ///< When zero, server updates the progress total_size by the content_size, during the transfer.
+    u8 pad[7];            ///< Padding.
+} DeliveryMessageGetContentArg;
 
 /// Create a \ref DeliveryManager.
 Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_addr *addr, u16 port);

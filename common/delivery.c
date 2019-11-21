@@ -307,6 +307,12 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
     Result rc=0;
     DeliveryMessageHeader recvhdr={0}, sendhdr={0};
 
+    u8 content_meta_key[0x10]; // NcmContentMetaKey
+    u8 meta_content_record[0x38]; // Meta ContentRecord
+    DeliveryMessageGetContentArg arg;
+    s64 content_size;
+    s64 progress_value;
+
     while (R_SUCCEEDED(rc)) {
         rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
         if (R_FAILED(rc)) break;
@@ -316,13 +322,65 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                 return 0;
             break;
 
-            // TODO: DeliveryMessageId_GetMetaContentRecord
+            case DeliveryMessageId_GetMetaContentRecord:
+                memset(content_meta_key, 0, sizeof(content_meta_key));
+                memset(meta_content_record, 0, sizeof(meta_content_record));
 
-            // TODO: DeliveryMessageId_GetContent
+                if (recvhdr.data_size != sizeof(content_meta_key))
+                    rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
 
-            // We don't support DeliveryMessageId_GetCommonTicket.
+                if (R_SUCCEEDED(rc))
+                    rc = _deliveryManagerMessageReceiveData(d, content_meta_key, sizeof(content_meta_key), sizeof(content_meta_key));
 
-            // TODO: DeliveryMessageId_UpdateProgress
+                // TODO: Call a handler func to load the meta_content_record using the input content_meta_key, returning the Result on fail.
+
+                if (R_SUCCEEDED(rc)) {
+                    _deliveryManagerCreateReplyMessageHeader(&sendhdr, recvhdr.id, sizeof(meta_content_record));
+                    rc = _deliveryManagerMessageSend(d, &sendhdr, meta_content_record, sizeof(meta_content_record));
+                }
+            break;
+
+            case DeliveryMessageId_GetContent:
+                memset(&arg, 0, sizeof(arg));
+                content_size=0;
+
+                if (recvhdr.data_size != sizeof(arg))
+                    rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
+
+                if (R_SUCCEEDED(rc))
+                    rc = _deliveryManagerMessageReceiveData(d, &arg, sizeof(arg), sizeof(arg));
+
+                // TODO: Load content_size using the above arg and some handler func.
+                // TODO: Use some data-reading funcptr with  _deliveryManagerMessageSend, which would use the above arg. This would also handle updating progress_total_size when needed.
+
+                if (R_SUCCEEDED(rc)) {
+                    _deliveryManagerCreateReplyMessageHeader(&sendhdr, recvhdr.id, content_size);
+                    rc = _deliveryManagerMessageSend(d, &sendhdr, NULL, 0); // TODO: Use workbuf addr/size with this once the above is impl'd.
+                }
+            break;
+
+            // We don't support DeliveryMessageId_GetCommonTicket. nim server supports it for SystemUpdate/Application, but the nim client only uses it for Application (game-updates).
+
+            case DeliveryMessageId_UpdateProgress:
+                progress_value = 0;
+
+                if (recvhdr.data_size != sizeof(progress_value))
+                    rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId); // This error is used by nim.
+
+                if (R_SUCCEEDED(rc))
+                    rc = _deliveryManagerMessageReceiveData(d, &progress_value, sizeof(progress_value), sizeof(progress_value));
+
+                if (R_SUCCEEDED(rc)) {
+                    pthread_mutex_lock(&d->mutex);
+                    d->progress_current_size = progress_value;
+                    pthread_mutex_unlock(&d->mutex);
+                }
+
+                if (R_SUCCEEDED(rc)) {
+                    _deliveryManagerCreateReplyMessageHeader(&sendhdr, recvhdr.id, 0);
+                    rc = _deliveryManagerMessageSendHeader(d, &sendhdr);
+                }
+            break;
 
             default:
                 rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId);
