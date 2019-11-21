@@ -73,11 +73,29 @@ static void socket_error(const char *msg) {
 #endif
 }
 
+static bool _deliveryManagerGetCancelled(DeliveryManager *d) {
+    bool flag=0;
+    pthread_mutex_lock(&d->mutex);
+    flag = d->cancel_flag;
+    pthread_mutex_unlock(&d->mutex);
+    return flag;
+}
+
+static Result _deliveryManagerGetSocketError(DeliveryManager *d) {
+    Result rc=0;
+
+    if (_deliveryManagerGetCancelled(d)) rc = MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
+    else if (errno==ENETDOWN || errno==ECONNRESET || errno==EHOSTDOWN || errno==EHOSTUNREACH || errno==EPIPE) rc = MAKERESULT(Module_Nim, NimError_DeliverySocketError); // TODO: windows
+    else rc = MAKERESULT(Module_Nim, NimError_UnknownError);
+
+    return rc;
+}
+
 // This implements the socket setup done by nim cmd76 (SendSystemUpdate task-creation).
 static Result _deliveryManagerCreateServerSocket(DeliveryManager *d) {
     int sockfd=-1;
     int ret=0;
-    Result res=0;
+    Result rc=0;
 
     ret = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (ret >= 0) {
@@ -126,20 +144,18 @@ static Result _deliveryManagerCreateServerSocket(DeliveryManager *d) {
 
     if (ret != 0) shutdownSocket(&sockfd);
 
-    if (ret != 0 && res==0) {
-        if (d->cancel_flag) res = MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled); // TODO: mutex
-        else if (errno==ENETDOWN || errno==ECONNRESET || errno==EHOSTDOWN || errno==EHOSTUNREACH || errno==EPIPE) res = MAKERESULT(Module_Nim, NimError_DeliverySocketError); // TODO: windows
-        else res = MAKERESULT(Module_Nim, NimError_UnknownError);
+    if (ret != 0 && R_SUCCEEDED(rc)) {
+        rc = _deliveryManagerGetSocketError(d);
     }
 
-    return res;
+    return rc;
 }
 
 // This implements the socket setup done by nim cmd69 (ReceiveSystemUpdate task-creation).
 static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
     int sockfd=-1;
     int ret=0;
-    Result res=0;
+    Result rc=0;
 
     ret = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (ret >= 0) {
@@ -172,7 +188,7 @@ static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
                 if (ret < 0) socket_error("poll");
                 else if (ret == 0 || (fds.revents & (POLLERR|POLLHUP))) {
                     ret = -1;
-                    res = MAKERESULT(Module_Nim, NimError_DeliveryConnectionTimeout);
+                    rc = MAKERESULT(Module_Nim, NimError_DeliveryConnectionTimeout);
                     fprintf(stderr, "connection timeout/reset by peer.\n");
                 }
             }
@@ -196,18 +212,18 @@ static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
 
     if (ret != 0) shutdownSocket(&sockfd);
 
-    if (ret != 0 && res==0) {
-        if (d->cancel_flag) res = MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled); // TODO: mutex
-        else if (errno==ENETDOWN || errno==ECONNRESET || errno==EHOSTDOWN || errno==EHOSTUNREACH || errno==EPIPE) res = MAKERESULT(Module_Nim, NimError_DeliverySocketError); // TODO: windows
-        else res = MAKERESULT(Module_Nim, NimError_UnknownError);
+    if (ret != 0 && R_SUCCEEDED(rc)) {
+        rc = _deliveryManagerGetSocketError(d);
     }
 
-    return res;
+    return rc;
 }
 
 static void* _deliveryManagerServerTask(void* arg) {
     DeliveryManager *d = arg;
+    Result rc=0;
 
+    d->rc = rc;
     return NULL;
 }
 
@@ -231,9 +247,8 @@ Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_ad
 }
 
 void deliveryManagerClose(DeliveryManager *d) {
-    shutdownSocket(&d->listen_sockfd);
-    shutdownSocket(&d->conn_sockfd);
-    pthread_join(d->thread, NULL);
+    deliveryManagerCancel(d);
+    deliveryManagerGetResult(d);
     pthread_mutex_destroy(&d->mutex);
     memset(d, 0, sizeof(*d));
 }
@@ -252,5 +267,18 @@ Result deliveryManagerRequestRun(DeliveryManager *d) {
     }
 
     return 0;
+}
+
+void deliveryManagerCancel(DeliveryManager *d) {
+    pthread_mutex_lock(&d->mutex);
+    shutdownSocket(&d->listen_sockfd);
+    shutdownSocket(&d->conn_sockfd);
+    d->cancel_flag = true;
+    pthread_mutex_unlock(&d->mutex);
+}
+
+Result deliveryManagerGetResult(DeliveryManager *d) {
+    pthread_join(d->thread, NULL);
+    return d->rc;
 }
 

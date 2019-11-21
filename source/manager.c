@@ -38,7 +38,7 @@ void showHelp() {
 int main(int argc, char **argv) {
 //---------------------------------------------------------------------------------
     int ret=0;
-    Result res=0;
+    Result rc=0;
     DeliveryManager manager={0};
     char *address = NULL;
     char *datadir = NULL;
@@ -126,17 +126,24 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    res = deliveryManagerCreate(&manager, server, &nxaddr, port);
-    if (res!=0) printf("deliveryManagerCreate() failed: 0x%x\n", res);
-    if (res==0) {
+    rc = deliveryManagerCreate(&manager, server, &nxaddr, port);
+    if (R_FAILED(rc)) printf("deliveryManagerCreate() failed: 0x%x\n", rc);
+    if (R_SUCCEEDED(rc)) {
         if (server) {
-            res = deliveryManagerRequestRun(&manager);
-            if (res!=0) printf("deliveryManagerRequestRun() failed: 0x%x\n", res);
+            rc = deliveryManagerRequestRun(&manager);
+            if (R_FAILED(rc)) printf("deliveryManagerRequestRun() failed: 0x%x\n", rc);
+
+            printf("Server started.\n");
+
+            if (R_SUCCEEDED(rc)) {
+                rc = deliveryManagerGetResult(&manager);
+                printf("deliveryManagerGetResult(): 0x%x\n", rc);
+            }
         }
 
         deliveryManagerClose(&manager);
     }
-    if (res!=0) ret = 1;
+    if (R_FAILED(rc)) ret = 1;
 
 #ifdef __WIN32__
     WSACleanup ();

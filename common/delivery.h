@@ -31,6 +31,7 @@ typedef struct {
     u16 port;
     int listen_sockfd;
     int conn_sockfd;
+    Result rc;
 } DeliveryManager;
 
 /// DeliveryMessage
@@ -50,4 +51,10 @@ void deliveryManagerClose(DeliveryManager *d);
 
 /// Start the task thread, only available when \ref deliveryManagerCreate was used with server=true.
 Result deliveryManagerRequestRun(DeliveryManager *d);
+
+/// Cancel the server task. Used by \ref deliveryManagerClose.
+void deliveryManagerCancel(DeliveryManager *d);
+
+/// Wait for the server task to finish and returns the Result. Used by \ref deliveryManagerClose.
+Result deliveryManagerGetResult(DeliveryManager *d);
 
