@@ -24,6 +24,16 @@ typedef uint32_t in_addr_t;
 
 #include "delivery.h"
 
+static void _deliveryManagerCreateRequestMessageHeader(DeliveryMessageHeader *hdr, DeliveryMessageId id, s64 size1);
+static void _deliveryManagerCreateReplyMessageHeader(DeliveryMessageHeader *hdr, DeliveryMessageId id, s64 size1);
+
+static Result _deliveryManagerMessageSend(DeliveryManager *d, const DeliveryMessageHeader *hdr, const void* buf, size_t bufsize);
+static Result _deliveryManagerMessageSendHeader(DeliveryManager *d, const DeliveryMessageHeader *hdr);
+static Result _deliveryManagerMessageSendData(DeliveryManager *d, const void* buf, size_t bufsize, s64 total_transfer_size);
+
+static Result _deliveryManagerMessageReceiveHeader(DeliveryManager *d, DeliveryMessageHeader *hdr);
+static Result _deliveryManagerMessageReceiveData(DeliveryManager *d, void* buf, size_t bufsize, s64 total_transfer_size);
+
 //---------------------------------------------------------------------------------
 static void shutdownSocket(int *socket) {
 //---------------------------------------------------------------------------------
@@ -295,9 +305,29 @@ static Result _deliveryManagerServerTaskSocketSetup(DeliveryManager *d) {
 
 static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
     Result rc=0;
+    DeliveryMessageHeader recvhdr={0}, sendhdr={0};
 
     while (R_SUCCEEDED(rc)) {
-        // TODO
+        rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
+        if (R_FAILED(rc)) break;
+
+        switch (recvhdr.id) {
+            case DeliveryMessageId_Exit:
+                return 0;
+            break;
+
+            // TODO: DeliveryMessageId_GetMetaContentRecord
+
+            // TODO: DeliveryMessageId_GetContent
+
+            // We don't support DeliveryMessageId_GetCommonTicket.
+
+            // TODO: DeliveryMessageId_UpdateProgress
+
+            default:
+                rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId);
+            break;
+        }
     }
 
     return rc;
@@ -316,6 +346,162 @@ static void* _deliveryManagerServerTask(void* arg) {
     d->rc = rc;
     pthread_mutex_unlock(&d->mutex);
     return NULL;
+}
+
+static void _deliveryManagerCreateRequestMessageHeader(DeliveryMessageHeader *hdr, DeliveryMessageId id, s64 data_size) {
+    *hdr = (DeliveryMessageHeader){.magicnum = DELIVERY_MESSAGE_MAGICNUM_REQUEST, .id = id, .data_size = data_size};
+    return;
+}
+
+static void _deliveryManagerCreateReplyMessageHeader(DeliveryMessageHeader *hdr, DeliveryMessageId id, s64 data_size) {
+    *hdr = (DeliveryMessageHeader){.magicnum = DELIVERY_MESSAGE_MAGICNUM_REPLY, .id = id, .data_size = data_size};
+    return;
+}
+
+static void _deliveryManagerMessageHeaderConvertEndian(DeliveryMessageHeader *hdr) {
+    hdr->magicnum = le_word(hdr->magicnum);
+    hdr->meta_size = le_hword(hdr->meta_size);
+    hdr->data_size = le_dword(hdr->data_size);
+}
+
+// This implements the equivalent func in nim.
+static Result _deliveryManagerMessageSend(DeliveryManager *d, const DeliveryMessageHeader *hdr, const void* buf, size_t bufsize) {
+    Result rc=0;
+
+    rc = _deliveryManagerMessageSendHeader(d, hdr);
+    if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageSendData(d, buf, bufsize, hdr->data_size); // TODO: Pass params for the funcptr once impl'd.
+
+    return rc;
+}
+
+// This implements the equivalent func in nim.
+static Result _deliveryManagerMessageSendHeader(DeliveryManager *d, const DeliveryMessageHeader *hdr) {
+    ssize_t ret=0;
+    Result rc=0;
+    DeliveryMessageHeader tmphdr={0};
+
+    if (_deliveryManagerGetCancelled(d))
+        return MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
+
+    tmphdr = *hdr;
+
+    if (tmphdr.magicnum != DELIVERY_MESSAGE_MAGICNUM_REQUEST && tmphdr.magicnum != DELIVERY_MESSAGE_MAGICNUM_REPLY)
+        return MAKERESULT(Module_Nim, NimError_DeliveryBadMessageMagicnum);
+
+    _deliveryManagerMessageHeaderConvertEndian(&tmphdr);
+
+    ret = send(d->conn_sockfd, &tmphdr, sizeof(tmphdr), 0); // nim doesn't verify returned size for this.
+
+    if (ret < 0 && R_SUCCEEDED(rc)) {
+        rc = _deliveryManagerGetSocketError(d);
+    }
+
+    return rc;
+}
+
+// This implements the equivalent func in nim.
+static Result _deliveryManagerMessageSendData(DeliveryManager *d, const void* buf, size_t bufsize, s64 total_transfer_size) {
+    ssize_t ret=0;
+    Result rc=0;
+    size_t cur_size=0;
+
+    if (_deliveryManagerGetCancelled(d))
+        return MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
+
+    if (total_transfer_size < 1) return 0;
+
+    for (s64 offset=0; offset<total_transfer_size; offset+=cur_size) {
+        if (_deliveryManagerGetCancelled(d))
+            return MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
+
+        cur_size = total_transfer_size-offset;
+        cur_size = cur_size > bufsize ? bufsize : cur_size;
+
+        // TODO: call funcptr with cur_size and offset, returning Result from there on failure.
+
+        ret = send(d->conn_sockfd, buf, cur_size, 0);
+        if (ret < 0) break; // nim ignores ret besides this.
+    }
+
+    if (ret < 0 && R_SUCCEEDED(rc)) {
+        rc = _deliveryManagerGetSocketError(d);
+    }
+
+    return rc;
+}
+
+// This implements the equivalent func in nim.
+static Result _deliveryManagerMessageReceiveHeader(DeliveryManager *d, DeliveryMessageHeader *hdr) {
+    ssize_t ret=0;
+    Result rc=0;
+    size_t cur_size, total_size;
+    DeliveryMessageHeader tmphdr={0};
+    u8 tmpdata[0x80]={0};
+
+    if (_deliveryManagerGetCancelled(d))
+        return MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
+
+    ret = recv(d->conn_sockfd, &tmphdr, sizeof(tmphdr), MSG_WAITALL); // nim doesn't verify returned size for this.
+    if (ret >= 0) _deliveryManagerMessageHeaderConvertEndian(&tmphdr);
+
+    if (ret >= 0) {
+        if (tmphdr.magicnum != DELIVERY_MESSAGE_MAGICNUM_REQUEST && tmphdr.magicnum != DELIVERY_MESSAGE_MAGICNUM_REPLY)
+            return MAKERESULT(Module_Nim, NimError_DeliveryBadMessageMagicnum);
+
+        if (tmphdr.data_size < 0)
+            return MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
+    }
+
+    if (ret >= 0) {
+        total_size = tmphdr.meta_size;
+        if (total_size > 0x1000)
+            return MAKERESULT(Module_Nim, NimError_DeliveryBadMessageMetaSize);
+
+        while (total_size) { // Received data from this is ignored by nim.
+            cur_size = total_size < sizeof(tmpdata) ? total_size : sizeof(tmpdata);
+            ret = recv(d->conn_sockfd, tmpdata, cur_size, MSG_WAITALL);
+            if (ret < 0) break;
+            if (ret!=cur_size)
+                return MAKERESULT(Module_Nim, NimError_DeliverySocketError);
+            total_size-=cur_size;
+        }
+    }
+
+    if (ret >= 0) *hdr = tmphdr;
+
+    if (ret < 0 && R_SUCCEEDED(rc)) {
+        rc = _deliveryManagerGetSocketError(d);
+    }
+
+    return rc;
+}
+
+// This implements the equivalent func in nim.
+static Result _deliveryManagerMessageReceiveData(DeliveryManager *d, void* buf, size_t bufsize, s64 total_transfer_size) {
+    ssize_t ret=0;
+    Result rc=0;
+    size_t cur_size=0;
+
+    if (total_transfer_size < 1) return 0;
+
+    for (s64 offset=0; offset<total_transfer_size; offset+=ret) {
+        if (_deliveryManagerGetCancelled(d))
+            return MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
+
+        cur_size = total_transfer_size-offset;
+        cur_size = cur_size > bufsize ? bufsize : cur_size;
+
+        ret = recv(d->conn_sockfd, buf, cur_size, MSG_WAITALL);
+        if (ret < 0) break; // nim ignores ret value 0.
+
+        // TODO: call funcptr with ret and offset, returning Result from there on failure.
+    }
+
+    if (ret < 0 && R_SUCCEEDED(rc)) {
+        rc = _deliveryManagerGetSocketError(d);
+    }
+
+    return rc;
 }
 
 Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_addr *addr, u16 port) {

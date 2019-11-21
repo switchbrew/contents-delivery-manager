@@ -16,7 +16,7 @@
 typedef enum {
     DeliveryMessageId_Exit                 = 0,
     DeliveryMessageId_GetMetaContentRecord = 1,
-    DeliveryMessageId_ReadContent          = 2,
+    DeliveryMessageId_GetContent           = 2,
     DeliveryMessageId_GetCommonTicket      = 3,
     DeliveryMessageId_UpdateProgress       = 4,
 } DeliveryMessageId;
@@ -34,14 +34,14 @@ typedef struct {
     Result rc;
 } DeliveryManager;
 
-/// DeliveryMessage
+/// DeliveryMessageHeader
 typedef struct {
     u32 magicnum;         ///< Magicnum, must match \ref DELIVERY_MESSAGE_MAGICNUM_REQUEST or \ref DELIVERY_MESSAGE_MAGICNUM_REPLY.
     u8 id;                ///< \ref DeliveryMessageId
     u8 pad;               ///< Padding.
-    u16 size0;            ///< Must be <=0x1000.
-    s64 size1;            ///< Must not be negative.
-} DeliveryMessage;
+    u16 meta_size;        ///< Must be <=0x1000.
+    s64 data_size;        ///< Must not be negative.
+} DeliveryMessageHeader;
 
 /// Create a \ref DeliveryManager.
 Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_addr *addr, u16 port);

@@ -47,8 +47,8 @@ enum {
     NimError_DeliveryConnectionTimeout=5100,  ///< Connection timeout.
     NimError_DeliveryBadMessageId=5410,       ///< Invalid ID.
     NimError_DeliveryBadMessageMagicnum=5420, ///< Invalid magicnum.
-    NimError_DeliveryBadMessageSize1=5430,    ///< Invalid size1.
+    NimError_DeliveryBadMessageDataSize=5430, ///< Invalid data_size.
     NimError_DeliveryBadContentMetaKey=5440,  ///< The input ContentMetaKey doesn't match the ContentMetaKey in state.
-    NimError_DeliveryBadMessageSize0=5450,    ///< Invalid size0.
+    NimError_DeliveryBadMessageMetaSize=5450, ///< Invalid meta_size.
 };
 
