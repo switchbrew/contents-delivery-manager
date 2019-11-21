@@ -129,6 +129,11 @@ int main(int argc, char **argv) {
     res = deliveryManagerCreate(&manager, server, &nxaddr, port);
     if (res!=0) printf("deliveryManagerCreate() failed: 0x%x\n", res);
     if (res==0) {
+        if (server) {
+            res = deliveryManagerRequestRun(&manager);
+            if (res!=0) printf("deliveryManagerRequestRun() failed: 0x%x\n", res);
+        }
+
         deliveryManagerClose(&manager);
     }
     if (res!=0) ret = 1;

@@ -1,4 +1,5 @@
 #pragma once
+#include <pthread.h>
 #include "types.h"
 #include "result.h"
 
@@ -22,6 +23,8 @@ typedef enum {
 
 /// DeliveryManager
 typedef struct {
+    pthread_mutex_t mutex;
+    pthread_t thread;
     bool cancel_flag;
     bool server;
     struct in_addr addr;
@@ -44,4 +47,7 @@ Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_ad
 
 /// Close a \ref DeliveryManager.
 void deliveryManagerClose(DeliveryManager *d);
+
+/// Start the task thread, only available when \ref deliveryManagerCreate was used with server=true.
+Result deliveryManagerRequestRun(DeliveryManager *d);
 

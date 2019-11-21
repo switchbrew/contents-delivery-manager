@@ -25,7 +25,7 @@ typedef uint32_t in_addr_t;
 #include "delivery.h"
 
 //---------------------------------------------------------------------------------
-void shutdownSocket(int *socket) {
+static void shutdownSocket(int *socket) {
 //---------------------------------------------------------------------------------
     if (*socket == -1) return;
 #ifdef __WIN32__
@@ -59,7 +59,7 @@ static int set_socket_nonblocking(int sock, bool nonblock) {
     return 0;
 }
 
-void socket_error(const char *msg) {
+static void socket_error(const char *msg) {
 #ifndef _WIN32
     perror(msg);
 #else
@@ -74,7 +74,7 @@ void socket_error(const char *msg) {
 }
 
 // This implements the socket setup done by nim cmd76 (SendSystemUpdate task-creation).
-Result deliveryManagerCreateServerSocket(DeliveryManager *d) {
+static Result _deliveryManagerCreateServerSocket(DeliveryManager *d) {
     int sockfd=-1;
     int ret=0;
     Result res=0;
@@ -136,7 +136,7 @@ Result deliveryManagerCreateServerSocket(DeliveryManager *d) {
 }
 
 // This implements the socket setup done by nim cmd69 (ReceiveSystemUpdate task-creation).
-Result deliveryManagerCreateClientSocket(DeliveryManager *d) {
+static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
     int sockfd=-1;
     int ret=0;
     Result res=0;
@@ -205,6 +205,12 @@ Result deliveryManagerCreateClientSocket(DeliveryManager *d) {
     return res;
 }
 
+static void* _deliveryManagerServerTask(void* arg) {
+    DeliveryManager *d = arg;
+
+    return NULL;
+}
+
 Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_addr *addr, u16 port) {
     memset(d, 0, sizeof(*d));
 
@@ -214,13 +220,37 @@ Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_ad
     d->listen_sockfd = -1;
     d->conn_sockfd = -1;
 
-    if (server) return deliveryManagerCreateServerSocket(d);
-    else return deliveryManagerCreateClientSocket(d);
+    int ret = pthread_mutex_init(&d->mutex, NULL);
+    if (ret != 0) {
+        printf("pthread_mutex_init() failed: %d\n", ret);
+        return MAKERESULT(Module_Nim, NimError_UnknownError);
+    }
+
+    if (server) return _deliveryManagerCreateServerSocket(d);
+    else return _deliveryManagerCreateClientSocket(d);
 }
 
 void deliveryManagerClose(DeliveryManager *d) {
     shutdownSocket(&d->listen_sockfd);
     shutdownSocket(&d->conn_sockfd);
+    pthread_join(d->thread, NULL);
+    pthread_mutex_destroy(&d->mutex);
     memset(d, 0, sizeof(*d));
+}
+
+// We only support this with server=true.
+Result deliveryManagerRequestRun(DeliveryManager *d) {
+    int ret=0;
+
+    if (!d->server) return MAKERESULT(Module_Nim, NimError_BadInput);
+
+    ret = pthread_create(&d->thread, NULL, _deliveryManagerServerTask, d);
+
+    if (ret != 0) {
+        printf("pthread_create() failed: %d\n", ret);
+        return MAKERESULT(Module_Nim, NimError_UnknownError);
+    }
+
+    return 0;
 }
 
