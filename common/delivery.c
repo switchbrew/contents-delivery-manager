@@ -96,7 +96,12 @@ static Result _deliveryManagerGetSocketError(DeliveryManager *d) {
     Result rc=0;
 
     if (_deliveryManagerGetCancelled(d)) rc = MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
-    else if (errno==ENETDOWN || errno==ECONNRESET || errno==EHOSTDOWN || errno==EHOSTUNREACH || errno==EPIPE) rc = MAKERESULT(Module_Nim, NimError_DeliverySocketError); // TODO: windows
+    #ifndef _WIN32
+    else if (errno==ENETDOWN || errno==ECONNRESET || errno==EHOSTDOWN || errno==EHOSTUNREACH || errno==EPIPE)
+    #else
+    else if (WSAGetLastError()==WSAENETDOWN || WSAGetLastError()==WSAECONNRESET || WSAGetLastError()==WSAEHOSTDOWN || WSAGetLastError()==WSAEHOSTUNREACH || WSAGetLastError()==WSAECONNABORTED)
+    #endif
+        rc = MAKERESULT(Module_Nim, NimError_DeliverySocketError);
     else rc = MAKERESULT(Module_Nim, NimError_UnknownError);
 
     return rc;
@@ -190,12 +195,21 @@ static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
 
         ret = connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
 
-        // nim uses select(), we use poll() instead. TODO: windows
+        // nim uses select(), we use poll() instead.
         if (ret != 0) {
-            if (errno != EINPROGRESS) socket_error("connect");
+            #ifndef _WIN32
+            if (errno != EINPROGRESS)
+            #else
+            if (WSAGetLastError() != WSAEWOULDBLOCK)
+            #endif
+                socket_error("connect");
             else {
                 struct pollfd fds = {.fd = sockfd, .events = POLLOUT, .revents = 0};
+                #ifndef _WIN32
                 ret = poll(&fds, 1, 5000);
+                #else
+                ret = WSAPoll(&fds, 1, 5000);
+                #endif
                 if (ret < 0) socket_error("poll");
                 else if (ret == 0 || (fds.revents & (POLLERR|POLLHUP))) {
                     ret = -1;
@@ -232,6 +246,7 @@ static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
 }
 
 // This implements the func called from the socket-setup loop from the nim Send async thread.
+// nim uses select(), we use poll() instead.
 static Result _deliveryManagerServerTaskWaitConnection(DeliveryManager *d) {
     int ret=0;
     Result rc=0;
@@ -240,7 +255,11 @@ static Result _deliveryManagerServerTaskWaitConnection(DeliveryManager *d) {
         if (_deliveryManagerGetCancelled(d)) return MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
 
         struct pollfd fds = {.fd = d->listen_sockfd, .events = POLLIN, .revents = 0};
+        #ifndef _WIN32
         ret = poll(&fds, 1, 1000);
+        #else
+        ret = WSAPoll(&fds, 1, 1000);
+        #endif
         if (ret < 0) return _deliveryManagerGetSocketError(d);
         if (ret>0 && !(fds.revents & POLLIN)) ret = 0;
     }
