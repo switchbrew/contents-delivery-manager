@@ -56,6 +56,9 @@ typedef struct {
 
     s64 progress_current_size;
     s64 progress_total_size;
+
+    void* workbuf;
+    size_t workbuf_size;
 } DeliveryManager;
 
 /// DeliveryMessageHeader

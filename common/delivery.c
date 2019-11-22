@@ -355,7 +355,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
 
                 if (R_SUCCEEDED(rc)) {
                     _deliveryManagerCreateReplyMessageHeader(&sendhdr, recvhdr.id, content_size);
-                    rc = _deliveryManagerMessageSend(d, &sendhdr, NULL, 0); // TODO: Use workbuf addr/size with this once the above is impl'd.
+                    rc = _deliveryManagerMessageSend(d, &sendhdr, d->workbuf, d->workbuf_size);
                 }
             break;
 
@@ -563,6 +563,8 @@ static Result _deliveryManagerMessageReceiveData(DeliveryManager *d, void* buf, 
 }
 
 Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_addr *addr, u16 port) {
+    Result rc=0;
+
     memset(d, 0, sizeof(*d));
 
     d->server = server;
@@ -577,14 +579,31 @@ Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_ad
         return MAKERESULT(Module_Nim, NimError_UnknownError);
     }
 
-    if (server) return _deliveryManagerCreateServerSocket(d);
-    else return _deliveryManagerCreateClientSocket(d);
+    d->workbuf_size = 0x20000;
+    d->workbuf = malloc(d->workbuf_size);
+    if (d->workbuf==NULL)
+        rc = MAKERESULT(Module_Nim, NimError_BadInput);
+    else memset(d->workbuf, 0, d->workbuf_size);
+
+    if (R_SUCCEEDED(rc)) {
+        if (server) rc = _deliveryManagerCreateServerSocket(d);
+        else rc = _deliveryManagerCreateClientSocket(d);
+    }
+
+    if (R_FAILED(rc)) {
+        free(d->workbuf);
+        pthread_mutex_destroy(&d->mutex);
+        memset(d, 0, sizeof(*d));
+    }
+
+    return rc;
 }
 
 void deliveryManagerClose(DeliveryManager *d) {
     deliveryManagerCancel(d);
     deliveryManagerGetResult(d);
     pthread_mutex_destroy(&d->mutex);
+    free(d->workbuf);
     memset(d, 0, sizeof(*d));
 }
 
