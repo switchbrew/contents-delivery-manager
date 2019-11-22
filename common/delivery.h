@@ -67,3 +67,8 @@ void deliveryManagerCancel(DeliveryManager *d);
 /// Wait for the server task to finish and returns the Result. Used by \ref deliveryManagerClose.
 Result deliveryManagerGetResult(DeliveryManager *d);
 
+/// Client-mode only. Tells the server to exit.
+Result deliveryManagerClientRequestExit(DeliveryManager *d);
+
+Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_current_size);
+

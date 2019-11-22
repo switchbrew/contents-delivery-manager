@@ -140,6 +140,11 @@ int main(int argc, char **argv) {
                 printf("deliveryManagerGetResult(): 0x%x\n", rc);
             }
         }
+        else {
+            printf("Connected to server.\n");
+            rc = deliveryManagerClientRequestExit(&manager);
+            printf("deliveryManagerClientRequestExit(): 0x%x\n", rc);
+        }
 
         deliveryManagerClose(&manager);
     }

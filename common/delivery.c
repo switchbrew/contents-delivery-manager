@@ -621,3 +621,27 @@ Result deliveryManagerGetResult(DeliveryManager *d) {
     return rc;
 }
 
+Result deliveryManagerClientRequestExit(DeliveryManager *d) {
+    if (d->server) return MAKERESULT(Module_Nim, NimError_BadInput);
+
+    DeliveryMessageHeader sendhdr={0};
+    _deliveryManagerCreateRequestMessageHeader(&sendhdr, DeliveryMessageId_Exit, 0);
+    return _deliveryManagerMessageSendHeader(d, &sendhdr);
+}
+
+Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_current_size) {
+    Result rc=0;
+    DeliveryMessageHeader sendhdr={0}, recvhdr={0};
+    if (d->server) return MAKERESULT(Module_Nim, NimError_BadInput);
+
+    // nim would load "nim.errorsimulate!error_localcommunication_result" into rc here and return it if needed, we won't do an equivalent.
+
+    _deliveryManagerCreateRequestMessageHeader(&sendhdr, DeliveryMessageId_UpdateProgress, sizeof(progress_current_size));
+    rc = _deliveryManagerMessageSend(d, &sendhdr, &progress_current_size, sizeof(progress_current_size)); // nim loads progress_current_size from state.
+    if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
+    if (R_SUCCEEDED(rc) && recvhdr.id != sendhdr.id) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId);
+    if (R_SUCCEEDED(rc) && recvhdr.data_size != 0) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
+
+    return rc;
+}
+
