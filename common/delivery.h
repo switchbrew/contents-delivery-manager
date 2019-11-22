@@ -13,6 +13,9 @@
 /// Magicnum for reply messages.
 #define DELIVERY_MESSAGE_MAGICNUM_REPLY 0x7352444c
 
+/// Handler func for GetMetaContentRecord, params: (userdata, {0x38-byte output ContentRecord}, {0x10-byte input ContentMetaKey}).
+typedef Result (*DeliveryFnGetMetaContentRecord)(void*, void*, const void*);
+
 /// Result module values
 enum {
     Module_Nim=137,
@@ -59,6 +62,9 @@ typedef struct {
 
     void* workbuf;
     size_t workbuf_size;
+
+    DeliveryFnGetMetaContentRecord handler_get_meta_content_record;
+    void* handler_get_meta_content_record_userdata;
 } DeliveryManager;
 
 /// DeliveryMessageHeader
@@ -90,6 +96,9 @@ void deliveryManagerCancel(DeliveryManager *d);
 
 /// Wait for the server task to finish and returns the Result. Used by \ref deliveryManagerClose.
 Result deliveryManagerGetResult(DeliveryManager *d);
+
+/// Sets the server handler for GetMetaContentRecord.
+void deliveryManagerSetHandlerGetMetaContentRecord(DeliveryManager *d, DeliveryFnGetMetaContentRecord fn, void* userdata);
 
 /// Client-mode only. Tells the server to exit.
 Result deliveryManagerClientRequestExit(DeliveryManager *d);

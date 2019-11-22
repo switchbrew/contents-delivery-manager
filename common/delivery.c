@@ -332,7 +332,10 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                 if (R_SUCCEEDED(rc))
                     rc = _deliveryManagerMessageReceiveData(d, content_meta_key, sizeof(content_meta_key), sizeof(content_meta_key));
 
-                // TODO: Call a handler func to load the meta_content_record using the input content_meta_key, returning the Result on fail.
+                if (R_SUCCEEDED(rc)) {
+                    if (d->handler_get_meta_content_record)
+                        rc = d->handler_get_meta_content_record(d->handler_get_meta_content_record_userdata, meta_content_record, content_meta_key);
+                }
 
                 if (R_SUCCEEDED(rc)) {
                     _deliveryManagerCreateReplyMessageHeader(&sendhdr, recvhdr.id, sizeof(meta_content_record));
@@ -638,6 +641,11 @@ Result deliveryManagerGetResult(DeliveryManager *d) {
     rc = d->rc;
     pthread_mutex_unlock(&d->mutex);
     return rc;
+}
+
+void deliveryManagerSetHandlerGetMetaContentRecord(DeliveryManager *d, DeliveryFnGetMetaContentRecord fn, void* userdata) {
+    d->handler_get_meta_content_record = fn;
+    d->handler_get_meta_content_record_userdata = userdata;
 }
 
 Result deliveryManagerClientRequestExit(DeliveryManager *d) {
