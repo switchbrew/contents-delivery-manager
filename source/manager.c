@@ -136,6 +136,7 @@ int main(int argc, char **argv) {
             printf("Server started.\n");
 
             if (R_SUCCEEDED(rc)) {
+                // We could use deliveryManagerGetProgress() to print the progress, but don't bother - would also have to handle waiting for the task to finish differently, since deliveryManagerGetResult() blocks until it's done.
                 rc = deliveryManagerGetResult(&manager);
                 printf("deliveryManagerGetResult(): 0x%x\n", rc);
             }

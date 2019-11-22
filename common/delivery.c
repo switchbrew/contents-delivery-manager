@@ -643,6 +643,13 @@ Result deliveryManagerGetResult(DeliveryManager *d) {
     return rc;
 }
 
+void deliveryManagerGetProgress(DeliveryManager *d, s64 *progress_current_size, s64 *progress_total_size) {
+    pthread_mutex_lock(&d->mutex);
+    *progress_current_size = d->progress_current_size;
+    *progress_total_size = d->progress_total_size;
+    pthread_mutex_unlock(&d->mutex);
+}
+
 void deliveryManagerSetHandlerGetMetaContentRecord(DeliveryManager *d, DeliveryFnGetMetaContentRecord fn, void* userdata) {
     d->handler_get_meta_content_record = fn;
     d->handler_get_meta_content_record_userdata = userdata;

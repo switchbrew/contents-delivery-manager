@@ -97,6 +97,9 @@ void deliveryManagerCancel(DeliveryManager *d);
 /// Wait for the server task to finish and returns the Result. Used by \ref deliveryManagerClose.
 Result deliveryManagerGetResult(DeliveryManager *d);
 
+/// Get the progress, only valid for server-mode.
+void deliveryManagerGetProgress(DeliveryManager *d, s64 *progress_current_size, s64 *progress_total_size);
+
 /// Sets the server handler for GetMetaContentRecord.
 void deliveryManagerSetHandlerGetMetaContentRecord(DeliveryManager *d, DeliveryFnGetMetaContentRecord fn, void* userdata);
 
