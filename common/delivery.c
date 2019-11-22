@@ -27,12 +27,12 @@ typedef uint32_t in_addr_t;
 static void _deliveryManagerCreateRequestMessageHeader(DeliveryMessageHeader *hdr, DeliveryMessageId id, s64 size1);
 static void _deliveryManagerCreateReplyMessageHeader(DeliveryMessageHeader *hdr, DeliveryMessageId id, s64 size1);
 
-static Result _deliveryManagerMessageSend(DeliveryManager *d, const DeliveryMessageHeader *hdr, const void* buf, size_t bufsize);
+static Result _deliveryManagerMessageSend(DeliveryManager *d, const DeliveryMessageHeader *hdr, const void* buf, size_t bufsize, DeliveryDataTransfer *transfer);
 static Result _deliveryManagerMessageSendHeader(DeliveryManager *d, const DeliveryMessageHeader *hdr);
-static Result _deliveryManagerMessageSendData(DeliveryManager *d, const void* buf, size_t bufsize, s64 total_transfer_size);
+static Result _deliveryManagerMessageSendData(DeliveryManager *d, const void* buf, size_t bufsize, s64 total_transfer_size, DeliveryDataTransfer *transfer);
 
 static Result _deliveryManagerMessageReceiveHeader(DeliveryManager *d, DeliveryMessageHeader *hdr);
-static Result _deliveryManagerMessageReceiveData(DeliveryManager *d, void* buf, size_t bufsize, s64 total_transfer_size);
+static Result _deliveryManagerMessageReceiveData(DeliveryManager *d, void* buf, size_t bufsize, s64 total_transfer_size, DeliveryDataTransfer *transfer);
 
 //---------------------------------------------------------------------------------
 static void shutdownSocket(int *socket) {
@@ -303,6 +303,26 @@ static Result _deliveryManagerServerTaskSocketSetup(DeliveryManager *d) {
     return rc;
 }
 
+static Result _deliveryManagerServerGetContentTransferHandler(void* userdata, void* buf, u64 size, s64 offset) {
+    Result rc=0;
+    struct DeliveryGetContentDataTransferState *transfer_state = (struct DeliveryGetContentDataTransferState*)userdata;
+    DeliveryManager *d = transfer_state->manager;
+
+    if (d->handler_get_content.transfer_handler) {
+        rc = d->handler_get_content.transfer_handler(transfer_state, buf, size, offset);
+    }
+    else
+        rc = MAKERESULT(Module_Nim, NimError_BadInput);
+
+    if (R_SUCCEEDED(rc) && transfer_state->arg->flag == 0) {
+        pthread_mutex_lock(&d->mutex);
+        d->progress_total_size+=size;
+        pthread_mutex_unlock(&d->mutex);
+    }
+
+    return rc;
+}
+
 static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
     Result rc=0;
     DeliveryMessageHeader recvhdr={0}, sendhdr={0};
@@ -312,6 +332,8 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
     DeliveryMessageGetContentArg arg;
     s64 content_size;
     s64 progress_value;
+    struct DeliveryGetContentDataTransferState transfer_state = {.manager = d, .arg = &arg, .userdata = d->handler_get_content.userdata};
+    DeliveryDataTransfer transfer = {.userdata = &transfer_state, .transfer_handler = _deliveryManagerServerGetContentTransferHandler};
 
     while (R_SUCCEEDED(rc)) {
         rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
@@ -330,7 +352,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                     rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
 
                 if (R_SUCCEEDED(rc))
-                    rc = _deliveryManagerMessageReceiveData(d, content_meta_key, sizeof(content_meta_key), sizeof(content_meta_key));
+                    rc = _deliveryManagerMessageReceiveData(d, content_meta_key, sizeof(content_meta_key), sizeof(content_meta_key), NULL);
 
                 if (R_SUCCEEDED(rc)) {
                     if (d->handler_get_meta_content_record)
@@ -339,7 +361,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
 
                 if (R_SUCCEEDED(rc)) {
                     _deliveryManagerCreateReplyMessageHeader(&sendhdr, recvhdr.id, sizeof(meta_content_record));
-                    rc = _deliveryManagerMessageSend(d, &sendhdr, meta_content_record, sizeof(meta_content_record));
+                    rc = _deliveryManagerMessageSend(d, &sendhdr, meta_content_record, sizeof(meta_content_record), NULL);
                 }
             break;
 
@@ -351,14 +373,16 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                     rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
 
                 if (R_SUCCEEDED(rc))
-                    rc = _deliveryManagerMessageReceiveData(d, &arg, sizeof(arg), sizeof(arg));
+                    rc = _deliveryManagerMessageReceiveData(d, &arg, sizeof(arg), sizeof(arg), NULL);
 
-                // TODO: Load content_size using the above arg and some handler func.
-                // TODO: Use some data-reading funcptr with  _deliveryManagerMessageSend, which would use the above arg. This would also handle updating progress_total_size when needed.
+                if (R_SUCCEEDED(rc)) {
+                    if (d->handler_get_content.init_handler) rc = d->handler_get_content.init_handler(&transfer_state, &content_size);
+                }
 
                 if (R_SUCCEEDED(rc)) {
                     _deliveryManagerCreateReplyMessageHeader(&sendhdr, recvhdr.id, content_size);
-                    rc = _deliveryManagerMessageSend(d, &sendhdr, d->workbuf, d->workbuf_size);
+                    rc = _deliveryManagerMessageSend(d, &sendhdr, d->workbuf, d->workbuf_size, &transfer);
+                    if (d->handler_get_content.exit_handler) d->handler_get_content.exit_handler(&transfer_state);
                 }
             break;
 
@@ -371,7 +395,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                     rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId); // This error is used by nim.
 
                 if (R_SUCCEEDED(rc))
-                    rc = _deliveryManagerMessageReceiveData(d, &progress_value, sizeof(progress_value), sizeof(progress_value));
+                    rc = _deliveryManagerMessageReceiveData(d, &progress_value, sizeof(progress_value), sizeof(progress_value), NULL);
 
                 if (R_SUCCEEDED(rc)) {
                     pthread_mutex_lock(&d->mutex);
@@ -426,11 +450,11 @@ static void _deliveryManagerMessageHeaderConvertEndian(DeliveryMessageHeader *hd
 }
 
 // This implements the equivalent func in nim.
-static Result _deliveryManagerMessageSend(DeliveryManager *d, const DeliveryMessageHeader *hdr, const void* buf, size_t bufsize) {
+static Result _deliveryManagerMessageSend(DeliveryManager *d, const DeliveryMessageHeader *hdr, const void* buf, size_t bufsize, DeliveryDataTransfer *transfer) {
     Result rc=0;
 
     rc = _deliveryManagerMessageSendHeader(d, hdr);
-    if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageSendData(d, buf, bufsize, hdr->data_size); // TODO: Pass params for the funcptr once impl'd.
+    if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageSendData(d, buf, bufsize, hdr->data_size, transfer);
 
     return rc;
 }
@@ -461,7 +485,7 @@ static Result _deliveryManagerMessageSendHeader(DeliveryManager *d, const Delive
 }
 
 // This implements the equivalent func in nim.
-static Result _deliveryManagerMessageSendData(DeliveryManager *d, const void* buf, size_t bufsize, s64 total_transfer_size) {
+static Result _deliveryManagerMessageSendData(DeliveryManager *d, const void* buf, size_t bufsize, s64 total_transfer_size, DeliveryDataTransfer *transfer) {
     ssize_t ret=0;
     Result rc=0;
     size_t cur_size=0;
@@ -478,7 +502,12 @@ static Result _deliveryManagerMessageSendData(DeliveryManager *d, const void* bu
         cur_size = total_transfer_size-offset;
         cur_size = cur_size > bufsize ? bufsize : cur_size;
 
-        // TODO: call funcptr with cur_size and offset, returning Result from there on failure.
+        if (transfer) {
+            if (transfer->transfer_handler) {
+                rc = transfer->transfer_handler(transfer->userdata, (void*)buf, cur_size, offset); // nim doesn't pass the buf param, it's passed via the object instead. nim passes ptrs for the last 2 params.
+                if (R_FAILED(rc)) break;
+            }
+        }
 
         ret = send(d->conn_sockfd, buf, cur_size, 0);
         if (ret < 0) break; // nim ignores ret besides this.
@@ -538,7 +567,7 @@ static Result _deliveryManagerMessageReceiveHeader(DeliveryManager *d, DeliveryM
 }
 
 // This implements the equivalent func in nim.
-static Result _deliveryManagerMessageReceiveData(DeliveryManager *d, void* buf, size_t bufsize, s64 total_transfer_size) {
+static Result _deliveryManagerMessageReceiveData(DeliveryManager *d, void* buf, size_t bufsize, s64 total_transfer_size, DeliveryDataTransfer *transfer) {
     ssize_t ret=0;
     Result rc=0;
     size_t cur_size=0;
@@ -555,7 +584,12 @@ static Result _deliveryManagerMessageReceiveData(DeliveryManager *d, void* buf, 
         ret = recv(d->conn_sockfd, buf, cur_size, MSG_WAITALL);
         if (ret < 0) break; // nim ignores ret value 0.
 
-        // TODO: call funcptr with ret and offset, returning Result from there on failure.
+        if (transfer) {
+            if (transfer->transfer_handler) {
+                rc = transfer->transfer_handler(transfer->userdata, buf, ret, offset); // nim doesn't pass the buf param, it's passed via the object instead. nim passes ptrs for the last 2 params.
+                if (R_FAILED(rc)) break;
+            }
+        }
     }
 
     if (ret < 0 && R_SUCCEEDED(rc)) {
@@ -655,6 +689,13 @@ void deliveryManagerSetHandlerGetMetaContentRecord(DeliveryManager *d, DeliveryF
     d->handler_get_meta_content_record_userdata = userdata;
 }
 
+void deliveryManagerSetHandlersGetContent(DeliveryManager *d, void* userdata, DeliveryFnContentTransferInit init_handler, DeliveryFnContentTransferExit exit_handler, DeliveryFnContentTransfer transfer_handler) {
+    d->handler_get_content.userdata = userdata;
+    d->handler_get_content.init_handler = init_handler;
+    d->handler_get_content.exit_handler = exit_handler;
+    d->handler_get_content.transfer_handler = transfer_handler;
+}
+
 Result deliveryManagerClientRequestExit(DeliveryManager *d) {
     if (d->server) return MAKERESULT(Module_Nim, NimError_BadInput);
 
@@ -671,7 +712,7 @@ Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_curr
     // nim would load "nim.errorsimulate!error_localcommunication_result" into rc here and return it if needed, we won't do an equivalent.
 
     _deliveryManagerCreateRequestMessageHeader(&sendhdr, DeliveryMessageId_UpdateProgress, sizeof(progress_current_size));
-    rc = _deliveryManagerMessageSend(d, &sendhdr, &progress_current_size, sizeof(progress_current_size)); // nim loads progress_current_size from state.
+    rc = _deliveryManagerMessageSend(d, &sendhdr, &progress_current_size, sizeof(progress_current_size), NULL); // nim loads progress_current_size from state.
     if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
     if (R_SUCCEEDED(rc) && recvhdr.id != sendhdr.id) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId);
     if (R_SUCCEEDED(rc) && recvhdr.data_size != 0) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);

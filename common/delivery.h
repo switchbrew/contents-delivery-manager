@@ -13,8 +13,25 @@
 /// Magicnum for reply messages.
 #define DELIVERY_MESSAGE_MAGICNUM_REPLY 0x7352444c
 
+struct DeliveryGetContentDataTransferState;
+
 /// Handler func for GetMetaContentRecord, params: (userdata, {0x38-byte output ContentRecord}, {0x10-byte input ContentMetaKey}).
 typedef Result (*DeliveryFnGetMetaContentRecord)(void*, void*, const void*);
+
+/// Data transfer func, params: (userdata, buffer, size, offset)
+typedef Result (*DeliveryFnDataTransfer)(void*, void*, u64, s64);
+
+/// Data transfer cleanup func, params: (userdata)
+typedef Result (*DeliveryFnDataTransferExit)(void*);
+
+/// Content data transfer init func, params: (state, output_content_size)
+typedef Result (*DeliveryFnContentTransferInit)(struct DeliveryGetContentDataTransferState*, s64*);
+
+/// Content data transfer cleanup func, params: (state)
+typedef void (*DeliveryFnContentTransferExit)(struct DeliveryGetContentDataTransferState*);
+
+/// Content data transfer func, params: (state, buffer, size, offset)
+typedef Result (*DeliveryFnContentTransfer)(struct DeliveryGetContentDataTransferState*, void*, u64, s64);
 
 /// Result module values
 enum {
@@ -45,6 +62,13 @@ typedef enum {
     DeliveryMessageId_UpdateProgress       = 4,
 } DeliveryMessageId;
 
+/// DeliveryDataTransfer
+typedef struct {
+    void* userdata;
+    DeliveryFnDataTransfer transfer_handler;
+    DeliveryFnDataTransferExit exit_handler;
+} DeliveryDataTransfer;
+
 /// DeliveryManager
 typedef struct {
     pthread_mutex_t mutex;
@@ -65,6 +89,13 @@ typedef struct {
 
     DeliveryFnGetMetaContentRecord handler_get_meta_content_record;
     void* handler_get_meta_content_record_userdata;
+
+    struct {
+        void* userdata;
+        DeliveryFnContentTransferInit init_handler;
+        DeliveryFnContentTransferExit exit_handler;
+        DeliveryFnContentTransfer transfer_handler;
+    } handler_get_content;
 } DeliveryManager;
 
 /// DeliveryMessageHeader
@@ -76,11 +107,19 @@ typedef struct {
     s64 data_size;        ///< Must not be negative.
 } DeliveryMessageHeader;
 
+/// DeliveryMessageGetContentArg
 typedef struct {
     u8 content_id[0x10];  ///< NcmContentId
     u8 flag;              ///< When zero, server updates the progress total_size by the content_size, during the transfer.
     u8 pad[7];            ///< Padding.
 } DeliveryMessageGetContentArg;
+
+/// DeliveryGetContentDataTransferState
+struct DeliveryGetContentDataTransferState {
+    DeliveryManager *manager;
+    DeliveryMessageGetContentArg *arg;
+    void* userdata;
+};
 
 /// Create a \ref DeliveryManager.
 Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_addr *addr, u16 port);
@@ -103,8 +142,12 @@ void deliveryManagerGetProgress(DeliveryManager *d, s64 *progress_current_size, 
 /// Sets the server handler for GetMetaContentRecord.
 void deliveryManagerSetHandlerGetMetaContentRecord(DeliveryManager *d, DeliveryFnGetMetaContentRecord fn, void* userdata);
 
+/// Sets the handlers for GetContent.
+void deliveryManagerSetHandlersGetContent(DeliveryManager *d, void* userdata, DeliveryFnContentTransferInit init_handler, DeliveryFnContentTransferExit exit_handler, DeliveryFnContentTransfer transfer_handler);
+
 /// Client-mode only. Tells the server to exit.
 Result deliveryManagerClientRequestExit(DeliveryManager *d);
 
+/// Client-mode only. Update the server progress_current_size.
 Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_current_size);
 
