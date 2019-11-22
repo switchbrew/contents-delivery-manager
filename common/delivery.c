@@ -23,6 +23,7 @@ typedef uint32_t in_addr_t;
 #endif
 
 #include "delivery.h"
+#include "utils.h"
 
 static void _deliveryManagerCreateRequestMessageHeader(DeliveryMessageHeader *hdr, DeliveryMessageId id, s64 size1);
 static void _deliveryManagerCreateReplyMessageHeader(DeliveryMessageHeader *hdr, DeliveryMessageId id, s64 size1);
