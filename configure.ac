@@ -26,7 +26,7 @@ case "$host" in
       ;;
 esac
 
-CFLAGS="$CFLAGS -std=gnu99"
+CFLAGS="$CFLAGS -std=gnu99 -iquote $DEVKITPRO/libnx/include"
 
 AC_SUBST(NET_LIBS)
 AC_CONFIG_FILES([Makefile])

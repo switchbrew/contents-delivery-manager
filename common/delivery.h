@@ -1,8 +1,8 @@
 #pragma once
 #include <pthread.h>
 
-#include "types.h"
-#include "result.h"
+#include "switch/result.h"
+#include "switch/services/ncm_types.h"
 
 /// Default port.
 #define DELIVERY_PORT_DEFAULT 55556
