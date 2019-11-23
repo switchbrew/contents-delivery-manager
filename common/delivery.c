@@ -135,7 +135,7 @@ static Result _deliveryManagerCreateServerSocket(DeliveryManager *d) {
 
     if (ret == 0) {
         u32 tmpval2=1;
-        ret = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &tmpval2, sizeof(tmpval2));
+        ret = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&tmpval2, sizeof(tmpval2));
         if (ret != 0) socket_error("setsockopt");
     }
 
@@ -224,7 +224,7 @@ static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
     #ifdef __SWITCH__
     if (ret == 0) {
         u64 tmpval=1;
-        ret = setsockopt(sockfd, SOL_SOCKET, SO_VENDOR + 0x1, &tmpval, sizeof(tmpval));
+        ret = setsockopt(sockfd, SOL_SOCKET, SO_VENDOR + 0x1, (const char*)&tmpval, sizeof(tmpval));
         if (ret != 0) socket_error("setsockopt");
     }
     #endif
@@ -303,13 +303,13 @@ static Result _deliveryManagerServerTaskSocketSetup(DeliveryManager *d) {
     // nim ignores errors from this.
     if (ret == 0) {
         u32 tmpval=0x4000;
-        setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &tmpval, sizeof(tmpval));
+        setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (const char*)&tmpval, sizeof(tmpval));
     }
 
     // nim ignores errors from this.
     if (ret == 0) {
         u32 tmpval=0x20000;
-        setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &tmpval, sizeof(tmpval));
+        setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, (const char*)&tmpval, sizeof(tmpval));
     }
 
     if (ret != 0 && R_SUCCEEDED(rc)) {
@@ -495,7 +495,7 @@ static Result _deliveryManagerMessageSendHeader(DeliveryManager *d, const Delive
 
     _deliveryManagerMessageHeaderConvertEndian(&tmphdr);
 
-    ret = send(d->conn_sockfd, &tmphdr, sizeof(tmphdr), 0); // nim doesn't verify returned size for this.
+    ret = send(d->conn_sockfd, (const char*)&tmphdr, sizeof(tmphdr), 0); // nim doesn't verify returned size for this.
 
     if (ret < 0 && R_SUCCEEDED(rc)) {
         rc = _deliveryManagerGetSocketError(d);
@@ -551,7 +551,7 @@ static Result _deliveryManagerMessageReceiveHeader(DeliveryManager *d, DeliveryM
     if (_deliveryManagerGetCancelled(d))
         return MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
 
-    ret = recv(d->conn_sockfd, &tmphdr, sizeof(tmphdr), MSG_WAITALL); // nim doesn't verify returned size for this.
+    ret = recv(d->conn_sockfd, (char*)&tmphdr, sizeof(tmphdr), MSG_WAITALL); // nim doesn't verify returned size for this.
     if (ret >= 0) _deliveryManagerMessageHeaderConvertEndian(&tmphdr);
 
     if (ret >= 0) {
