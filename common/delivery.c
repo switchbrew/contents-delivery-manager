@@ -419,7 +419,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
 
                 if (R_SUCCEEDED(rc)) {
                     pthread_mutex_lock(&d->mutex);
-                    d->progress_current_size = progress_value;
+                    d->progress_current_size = le_dword(progress_value);
                     pthread_mutex_unlock(&d->mutex);
                 }
 
@@ -732,6 +732,7 @@ Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_curr
     // nim would load "nim.errorsimulate!error_localcommunication_result" into rc here and return it if needed, we won't do an equivalent.
 
     _deliveryManagerCreateRequestMessageHeader(&sendhdr, DeliveryMessageId_UpdateProgress, sizeof(progress_current_size));
+    progress_current_size = le_dword(progress_current_size);
     rc = _deliveryManagerMessageSend(d, &sendhdr, &progress_current_size, sizeof(progress_current_size), NULL); // nim loads progress_current_size from state.
     if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
     if (R_SUCCEEDED(rc) && recvhdr.id != sendhdr.id) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId);
