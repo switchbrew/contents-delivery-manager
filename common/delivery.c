@@ -92,17 +92,21 @@ static bool _deliveryManagerGetCancelled(DeliveryManager *d) {
     return flag;
 }
 
-static Result _deliveryManagerGetSocketError(DeliveryManager *d) {
+static Result _deliveryManagerGetSocketError(DeliveryManager *d, const char *msg) {
     Result rc=0;
 
     if (_deliveryManagerGetCancelled(d)) rc = MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
-    #ifndef _WIN32
-    else if (errno==ENETDOWN || errno==ECONNRESET || errno==EHOSTDOWN || errno==EHOSTUNREACH || errno==EPIPE)
-    #else
-    else if (WSAGetLastError()==WSAENETDOWN || WSAGetLastError()==WSAECONNRESET || WSAGetLastError()==WSAEHOSTDOWN || WSAGetLastError()==WSAEHOSTUNREACH || WSAGetLastError()==WSAECONNABORTED)
-    #endif
-        rc = MAKERESULT(Module_Nim, NimError_DeliverySocketError);
-    else rc = MAKERESULT(Module_Nim, NimError_UnknownError);
+    else {
+        if (msg) socket_error(msg);
+
+        #ifndef _WIN32
+        if (errno==ENETDOWN || errno==ECONNRESET || errno==EHOSTDOWN || errno==EHOSTUNREACH || errno==EPIPE)
+        #else
+        if (WSAGetLastError()==WSAENETDOWN || WSAGetLastError()==WSAECONNRESET || WSAGetLastError()==WSAEHOSTDOWN || WSAGetLastError()==WSAEHOSTUNREACH || WSAGetLastError()==WSAECONNABORTED)
+        #endif
+            rc = MAKERESULT(Module_Nim, NimError_DeliverySocketError);
+        else rc = MAKERESULT(Module_Nim, NimError_UnknownError);
+    }
 
     return rc;
 }
@@ -112,31 +116,32 @@ static Result _deliveryManagerCreateServerSocket(DeliveryManager *d) {
     int sockfd=-1;
     int ret=0;
     Result rc=0;
+    const char *msg = NULL;
 
     ret = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (ret >= 0) {
         sockfd = ret;
         ret = 0;
     }
-    else socket_error("socket");
+    else msg = "socket";
 
     if (ret == 0) {
         ret = set_socket_nonblocking(sockfd, true);
-        if (ret != 0) socket_error("set_socket_nonblocking");
+        if (ret != 0) msg = "set_socket_nonblocking";
     }
 
     #ifdef __SWITCH__
     if (ret == 0) {
         u64 tmpval=1;
         ret = setsockopt(sockfd, SOL_SOCKET, SO_VENDOR + 0x1, &tmpval, sizeof(tmpval));
-        if (ret != 0) socket_error("setsockopt");
+        if (ret != 0) msg = "setsockopt";
     }
     #endif
 
     if (ret == 0) {
         u32 tmpval2=1;
         ret = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&tmpval2, sizeof(tmpval2));
-        if (ret != 0) socket_error("setsockopt");
+        if (ret != 0) msg = "setsockopt";
     }
 
     if (ret == 0) {
@@ -148,16 +153,16 @@ static Result _deliveryManagerCreateServerSocket(DeliveryManager *d) {
         serv_addr.sin_port = htons(d->port);
 
         ret = bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
-        if (ret != 0) socket_error("bind");
+        if (ret != 0) msg = "bind";
     }
 
     if (ret == 0) {
         ret = listen(sockfd, 1);
-        if (ret != 0) socket_error("listen");
+        if (ret != 0) msg = "listen";
     }
 
     if (ret != 0 && R_SUCCEEDED(rc)) {
-        rc = _deliveryManagerGetSocketError(d);
+        rc = _deliveryManagerGetSocketError(d, NULL);
     }
 
     if (ret == 0) d->listen_sockfd = sockfd;
@@ -172,17 +177,18 @@ static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
     int sockfd=-1;
     int ret=0;
     Result rc=0;
+    const char *msg = NULL;
 
     ret = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (ret >= 0) {
         sockfd = ret;
         ret = 0;
     }
-    else socket_error("socket");
+    else msg = "socket";
 
     if (ret == 0) {
         ret = set_socket_nonblocking(sockfd, true);
-        if (ret != 0) socket_error("set_socket_nonblocking(true)");
+        if (ret != 0) msg = "set_socket_nonblocking(true)";
     }
 
     if (ret == 0) {
@@ -202,7 +208,7 @@ static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
             #else
             if (WSAGetLastError() != WSAEWOULDBLOCK)
             #endif
-                socket_error("connect");
+                msg = "connect";
             else {
                 struct pollfd fds = {.fd = sockfd, .events = POLLOUT, .revents = 0};
                 #ifndef _WIN32
@@ -225,17 +231,17 @@ static Result _deliveryManagerCreateClientSocket(DeliveryManager *d) {
     if (ret == 0) {
         u64 tmpval=1;
         ret = setsockopt(sockfd, SOL_SOCKET, SO_VENDOR + 0x1, (const char*)&tmpval, sizeof(tmpval));
-        if (ret != 0) socket_error("setsockopt");
+        if (ret != 0) msg = "setsockopt";
     }
     #endif
 
     if (ret == 0) {
         ret = set_socket_nonblocking(sockfd, false);
-        if (ret != 0) socket_error("set_socket_nonblocking(false)");
+        if (ret != 0) msg = "set_socket_nonblocking(false)";
     }
 
     if (ret != 0 && R_SUCCEEDED(rc)) {
-        rc = _deliveryManagerGetSocketError(d);
+        rc = _deliveryManagerGetSocketError(d, msg);
     }
 
     if (ret == 0) d->conn_sockfd = sockfd;
@@ -260,7 +266,7 @@ static Result _deliveryManagerServerTaskWaitConnection(DeliveryManager *d) {
         #else
         ret = WSAPoll(&fds, 1, 1000);
         #endif
-        if (ret < 0) return _deliveryManagerGetSocketError(d);
+        if (ret < 0) return _deliveryManagerGetSocketError(d, NULL);
         if (ret>0 && !(fds.revents & POLLIN)) ret = 0;
     }
 
@@ -272,6 +278,7 @@ static Result _deliveryManagerServerTaskSocketSetup(DeliveryManager *d) {
     int sockfd=-1;
     int ret=0;
     Result rc=0;
+    const char *msg = NULL;
 
     while (R_SUCCEEDED(rc = _deliveryManagerServerTaskWaitConnection(d))) {
         struct sockaddr_in sa_remote={0};
@@ -289,7 +296,7 @@ static Result _deliveryManagerServerTaskSocketSetup(DeliveryManager *d) {
     if (ret == 0) {
         u64 tmpval=1;
         ret = setsockopt(sockfd, SOL_SOCKET, SO_VENDOR + 0x1, &tmpval, sizeof(tmpval));
-        if (ret != 0) socket_error("setsockopt");
+        if (ret != 0) msg = "setsockopt";
     }
     #endif
 
@@ -297,7 +304,7 @@ static Result _deliveryManagerServerTaskSocketSetup(DeliveryManager *d) {
 
     if (ret == 0) {
         ret = set_socket_nonblocking(sockfd, false);
-        if (ret != 0) socket_error("set_socket_nonblocking(false)");
+        if (ret != 0) msg = "set_socket_nonblocking(false)";
     }
 
     // nim ignores errors from this.
@@ -313,7 +320,7 @@ static Result _deliveryManagerServerTaskSocketSetup(DeliveryManager *d) {
     }
 
     if (ret != 0 && R_SUCCEEDED(rc)) {
-        rc = _deliveryManagerGetSocketError(d);
+        rc = _deliveryManagerGetSocketError(d, msg);
     }
 
     if (ret == 0) d->conn_sockfd = sockfd;
@@ -498,7 +505,7 @@ static Result _deliveryManagerMessageSendHeader(DeliveryManager *d, const Delive
     ret = send(d->conn_sockfd, (const char*)&tmphdr, sizeof(tmphdr), 0); // nim doesn't verify returned size for this.
 
     if (ret < 0 && R_SUCCEEDED(rc)) {
-        rc = _deliveryManagerGetSocketError(d);
+        rc = _deliveryManagerGetSocketError(d, NULL);
     }
 
     return rc;
@@ -534,7 +541,7 @@ static Result _deliveryManagerMessageSendData(DeliveryManager *d, const void* bu
     }
 
     if (ret < 0 && R_SUCCEEDED(rc)) {
-        rc = _deliveryManagerGetSocketError(d);
+        rc = _deliveryManagerGetSocketError(d, NULL);
     }
 
     return rc;
@@ -580,7 +587,7 @@ static Result _deliveryManagerMessageReceiveHeader(DeliveryManager *d, DeliveryM
     if (ret >= 0) *hdr = tmphdr;
 
     if (ret < 0 && R_SUCCEEDED(rc)) {
-        rc = _deliveryManagerGetSocketError(d);
+        rc = _deliveryManagerGetSocketError(d, NULL);
     }
 
     return rc;
@@ -613,7 +620,7 @@ static Result _deliveryManagerMessageReceiveData(DeliveryManager *d, void* buf, 
     }
 
     if (ret < 0 && R_SUCCEEDED(rc)) {
-        rc = _deliveryManagerGetSocketError(d);
+        rc = _deliveryManagerGetSocketError(d, NULL);
     }
 
     return rc;
