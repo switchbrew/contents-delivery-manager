@@ -15,8 +15,8 @@
 
 struct DeliveryGetContentDataTransferState;
 
-/// Handler func for GetMetaContentRecord, params: (userdata, {0x38-byte output ContentRecord}, {0x10-byte input ContentMetaKey}).
-typedef Result (*DeliveryFnGetMetaContentRecord)(void*, void*, const void*);
+/// Handler func for GetMetaContentRecord, params: (userdata, output NcmPackagedContentInfo, input NcmContentMetaKey).
+typedef Result (*DeliveryFnGetMetaContentRecord)(void*, NcmPackagedContentInfo*, const NcmContentMetaKey*);
 
 /// Data transfer func, params: (userdata, buffer, size, offset)
 typedef Result (*DeliveryFnDataTransfer)(void*, void*, u64, s64);
@@ -24,7 +24,7 @@ typedef Result (*DeliveryFnDataTransfer)(void*, void*, u64, s64);
 /// Data transfer cleanup func, params: (userdata)
 typedef Result (*DeliveryFnDataTransferExit)(void*);
 
-/// Content data transfer init func, params: (state, output_content_size)
+/// Content data transfer init func, params: (state, output_content_size). With client-mode, the latter is an input ptr to the content_size from recvhdr.data_size.
 typedef Result (*DeliveryFnContentTransferInit)(struct DeliveryGetContentDataTransferState*, s64*);
 
 /// Content data transfer cleanup func, params: (state)
@@ -109,9 +109,9 @@ typedef struct {
 
 /// DeliveryMessageGetContentArg
 typedef struct {
-    u8 content_id[0x10];  ///< NcmContentId
-    u8 flag;              ///< When zero, server updates the progress total_size by the content_size, during the transfer.
-    u8 pad[7];            ///< Padding.
+    NcmContentId content_id;  ///< NcmContentId
+    u8 flag;                  ///< When zero, server updates the progress total_size by the content_size, during the transfer.
+    u8 pad[7];                ///< Padding.
 } DeliveryMessageGetContentArg;
 
 /// DeliveryGetContentDataTransferState
@@ -120,6 +120,18 @@ struct DeliveryGetContentDataTransferState {
     DeliveryMessageGetContentArg *arg;
     void* userdata;
 };
+
+/// Internal struct used by nim, proper name unknown.
+typedef struct {
+    NcmContentId content_id;                 ///< NcmContentId. Loaded from NcmPackagedContentInfo and used with DeliveryMessageGetContentArg::content_id.
+    s64 content_size;                        ///< Content size. Loaded from NcmPackagedContentInfo.
+    NcmContentMetaKey content_meta_key;      ///< NcmContentMetaKey. Loaded from deliveryManagerClientGetMetaContentRecord input.
+    u16 unk_x28;
+    u8 unk_x2a[2];
+    u8 progress_flag;                        ///< Used with DeliveryMessageGetContentArg::flag.
+    u8 unk_x2d[3];
+    u8 hash[0x20];                           ///< Content hash. Loaded from NcmPackagedContentInfo.
+} DeliveryContentInfo;
 
 /// Create a \ref DeliveryManager.
 Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_addr *addr, u16 port);
@@ -142,11 +154,17 @@ void deliveryManagerGetProgress(DeliveryManager *d, s64 *progress_current_size, 
 /// Sets the server handler for GetMetaContentRecord.
 void deliveryManagerSetHandlerGetMetaContentRecord(DeliveryManager *d, DeliveryFnGetMetaContentRecord fn, void* userdata);
 
-/// Sets the handlers for GetContent.
+/// Sets the server/client handlers for GetContent.
 void deliveryManagerSetHandlersGetContent(DeliveryManager *d, void* userdata, DeliveryFnContentTransferInit init_handler, DeliveryFnContentTransferExit exit_handler, DeliveryFnContentTransfer transfer_handler);
 
 /// Client-mode only. Tells the server to exit.
 Result deliveryManagerClientRequestExit(DeliveryManager *d);
+
+/// Client-mode only. Gets the DeliveryContentInfo for the specified ContentMetaKey.
+Result deliveryManagerClientGetMetaContentRecord(DeliveryManager *d, DeliveryContentInfo *out, const NcmContentMetaKey *content_meta_key);
+
+/// Client-mode only. Gets the content data using the specified DeliveryContentInfo. See deliveryManagerSetHandlersGetContent.
+Result deliveryManagerClientGetContent(DeliveryManager *d, const DeliveryContentInfo *info);
 
 /// Client-mode only. Update the server progress_current_size.
 Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_current_size);

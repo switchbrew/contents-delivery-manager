@@ -330,7 +330,7 @@ static Result _deliveryManagerServerTaskSocketSetup(DeliveryManager *d) {
     return rc;
 }
 
-static Result _deliveryManagerServerGetContentTransferHandler(void* userdata, void* buf, u64 size, s64 offset) {
+static Result _deliveryManagerGetContentTransferHandler(void* userdata, void* buf, u64 size, s64 offset) {
     Result rc=0;
     struct DeliveryGetContentDataTransferState *transfer_state = (struct DeliveryGetContentDataTransferState*)userdata;
     DeliveryManager *d = transfer_state->manager;
@@ -354,13 +354,13 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
     Result rc=0;
     DeliveryMessageHeader recvhdr={0}, sendhdr={0};
 
-    u8 content_meta_key[0x10]; // NcmContentMetaKey
-    u8 meta_content_record[0x38]; // Meta ContentRecord
+    NcmContentMetaKey content_meta_key;
+    NcmPackagedContentInfo meta_content_record;
     DeliveryMessageGetContentArg arg;
     s64 content_size;
     s64 progress_value;
     struct DeliveryGetContentDataTransferState transfer_state = {.manager = d, .arg = &arg, .userdata = d->handler_get_content.userdata};
-    DeliveryDataTransfer transfer = {.userdata = &transfer_state, .transfer_handler = _deliveryManagerServerGetContentTransferHandler};
+    DeliveryDataTransfer transfer = {.userdata = &transfer_state, .transfer_handler = _deliveryManagerGetContentTransferHandler};
 
     while (R_SUCCEEDED(rc)) {
         rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
@@ -372,23 +372,23 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
             break;
 
             case DeliveryMessageId_GetMetaContentRecord:
-                memset(content_meta_key, 0, sizeof(content_meta_key));
-                memset(meta_content_record, 0, sizeof(meta_content_record));
+                memset(&content_meta_key, 0, sizeof(content_meta_key));
+                memset(&meta_content_record, 0, sizeof(meta_content_record));
 
                 if (recvhdr.data_size != sizeof(content_meta_key))
                     rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
 
                 if (R_SUCCEEDED(rc))
-                    rc = _deliveryManagerMessageReceiveData(d, content_meta_key, sizeof(content_meta_key), sizeof(content_meta_key), NULL);
+                    rc = _deliveryManagerMessageReceiveData(d, &content_meta_key, sizeof(content_meta_key), sizeof(content_meta_key), NULL);
 
                 if (R_SUCCEEDED(rc)) {
                     if (d->handler_get_meta_content_record)
-                        rc = d->handler_get_meta_content_record(d->handler_get_meta_content_record_userdata, meta_content_record, content_meta_key);
+                        rc = d->handler_get_meta_content_record(d->handler_get_meta_content_record_userdata, &meta_content_record, &content_meta_key);
                 }
 
                 if (R_SUCCEEDED(rc)) {
                     _deliveryManagerCreateReplyMessageHeader(&sendhdr, recvhdr.id, sizeof(meta_content_record));
-                    rc = _deliveryManagerMessageSend(d, &sendhdr, meta_content_record, sizeof(meta_content_record), NULL);
+                    rc = _deliveryManagerMessageSend(d, &sendhdr, &meta_content_record, sizeof(meta_content_record), NULL);
                 }
             break;
 
@@ -730,6 +730,58 @@ Result deliveryManagerClientRequestExit(DeliveryManager *d) {
     _deliveryManagerCreateRequestMessageHeader(&sendhdr, DeliveryMessageId_Exit, 0);
     return _deliveryManagerMessageSendHeader(d, &sendhdr);
 }
+
+Result deliveryManagerClientGetMetaContentRecord(DeliveryManager *d, DeliveryContentInfo *out, const NcmContentMetaKey *content_meta_key) {
+    Result rc=0;
+    DeliveryMessageHeader sendhdr={0}, recvhdr={0};
+    NcmPackagedContentInfo record={0};
+
+    memset(out, 0, sizeof(*out));
+    if (d->server) return MAKERESULT(Module_Nim, NimError_BadInput);
+
+    _deliveryManagerCreateRequestMessageHeader(&sendhdr, DeliveryMessageId_GetMetaContentRecord, sizeof(NcmContentMetaKey));
+    rc = _deliveryManagerMessageSend(d, &sendhdr, content_meta_key, sizeof(NcmContentMetaKey), NULL);
+    if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
+    if (R_SUCCEEDED(rc) && recvhdr.id != sendhdr.id) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId);
+    if (R_SUCCEEDED(rc) && recvhdr.data_size != sizeof(record)) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
+    if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageReceiveData(d, &record, sizeof(record), sizeof(record), NULL);
+
+    if (R_SUCCEEDED(rc)) {
+        memcpy(&out->content_id, &record.info.content_id, sizeof(NcmContentId));
+        out->content_size = (s64)record.info.size[0x0] | ((s64)record.info.size[0x1]<<8) | ((s64)record.info.size[0x2]<<16) | ((s64)record.info.size[0x3]<<24) | ((s64)record.info.size[0x4]<<32) | ((s64)record.info.size[0x5]<<40);
+        out->unk_x28 = 0x101;
+        memcpy(&out->content_meta_key, content_meta_key, sizeof(content_meta_key));
+        memcpy(out->hash, record.hash, sizeof(record.hash));
+    }
+
+    return rc;
+}
+
+Result deliveryManagerClientGetContent(DeliveryManager *d, const DeliveryContentInfo *info) {
+    Result rc=0;
+    DeliveryMessageHeader sendhdr={0}, recvhdr={0};
+    DeliveryMessageGetContentArg arg = {.content_id = info->content_id, .flag = info->progress_flag, .pad = {0}};
+    struct DeliveryGetContentDataTransferState transfer_state = {.manager = d, .arg = &arg, .userdata = d->handler_get_content.userdata};
+    DeliveryDataTransfer transfer = {.userdata = &transfer_state, .transfer_handler = _deliveryManagerGetContentTransferHandler};
+
+    if (d->server) return MAKERESULT(Module_Nim, NimError_BadInput);
+
+    _deliveryManagerCreateRequestMessageHeader(&sendhdr, DeliveryMessageId_GetContent, sizeof(DeliveryMessageGetContentArg));
+    rc = _deliveryManagerMessageSend(d, &sendhdr, &arg, sizeof(DeliveryMessageGetContentArg), NULL);
+    if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
+    if (R_SUCCEEDED(rc) && recvhdr.id != sendhdr.id) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId);
+    if (R_SUCCEEDED(rc) && recvhdr.data_size != info->content_size) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
+    if (R_SUCCEEDED(rc)) {
+        if (d->handler_get_content.init_handler) rc = d->handler_get_content.init_handler(&transfer_state, &recvhdr.data_size);
+
+        if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageReceiveData(d, d->workbuf, d->workbuf_size, recvhdr.data_size, &transfer);
+        if (d->handler_get_content.exit_handler) d->handler_get_content.exit_handler(&transfer_state);
+    }
+
+    return rc;
+}
+
+// We don't support a client impl for DeliveryMessageId_GetCommonTicket.
 
 Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_current_size) {
     Result rc=0;
