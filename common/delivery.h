@@ -33,6 +33,9 @@ typedef void (*DeliveryFnContentTransferExit)(struct DeliveryGetContentDataTrans
 /// Content data transfer func, params: (state, buffer, size, offset)
 typedef Result (*DeliveryFnContentTransfer)(struct DeliveryGetContentDataTransferState*, void*, u64, s64);
 
+/// .cnmt loading func, params: (userdata, filepath, ptr to output buffer, ptr to output size)
+typedef Result (*DeliveryFnMetaLoad)(void*, const char*, void**, size_t*);
+
 /// Result module values
 enum {
     Module_Nim=137,
@@ -69,6 +72,17 @@ typedef struct {
     DeliveryFnDataTransferExit exit_handler;
 } DeliveryDataTransfer;
 
+/// DeliveryContentEntry. Data loaded by deliveryManagerScanDataDir.
+struct DeliveryContentEntry {
+    struct DeliveryContentEntry *next;
+    bool is_meta;
+    NcmContentMetaKey content_meta_key;
+    NcmPackagedContentInfo content_info;
+
+    size_t filesize;
+    char filepath[PATH_MAX];
+};
+
 /// DeliveryManager
 typedef struct {
     pthread_mutex_t mutex;
@@ -96,6 +110,8 @@ typedef struct {
         DeliveryFnContentTransferExit exit_handler;
         DeliveryFnContentTransfer transfer_handler;
     } handler_get_content;
+
+    struct DeliveryContentEntry *content_list_first;
 } DeliveryManager;
 
 /// DeliveryMessageHeader
@@ -139,6 +155,9 @@ Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_ad
 /// Close a \ref DeliveryManager.
 void deliveryManagerClose(DeliveryManager *d);
 
+/// Gets the DeliveryContentEntry which has data matching the input.
+Result deliveryManagerGetContentEntry(DeliveryManager *d, struct DeliveryContentEntry **entry, const NcmContentMetaKey *content_meta_key, const NcmContentId *content_id);
+
 /// Start the task thread, only available when \ref deliveryManagerCreate was used with server=true.
 Result deliveryManagerRequestRun(DeliveryManager *d);
 
@@ -168,4 +187,7 @@ Result deliveryManagerClientGetContent(DeliveryManager *d, const DeliveryContent
 
 /// Client-mode only. Update the server progress_current_size.
 Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_current_size);
+
+/// Server-mode only. Scan the specified sysupdate data-dir.
+Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 depth, DeliveryFnMetaLoad meta_load, void* meta_load_userdata);
 

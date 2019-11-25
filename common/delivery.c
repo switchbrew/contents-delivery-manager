@@ -8,6 +8,8 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <errno.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 #ifndef __WIN32__
 #include <sys/socket.h>
@@ -668,7 +670,55 @@ void deliveryManagerClose(DeliveryManager *d) {
     deliveryManagerGetResult(d);
     pthread_mutex_destroy(&d->mutex);
     free(d->workbuf);
+
+    struct DeliveryContentEntry *entry_cur = d->content_list_first;
+    struct DeliveryContentEntry *entry_next;
+    while (entry_cur) {
+        entry_next = entry_cur->next;
+        memset(entry_cur, 0, sizeof(struct DeliveryContentEntry));
+        free(entry_cur);
+        entry_cur = entry_next;
+    }
+
     memset(d, 0, sizeof(*d));
+}
+
+static Result _deliveryManagerAddContentEntry(DeliveryManager *d, struct DeliveryContentEntry *entry) {
+    struct DeliveryContentEntry *alloc_entry = (struct DeliveryContentEntry*)malloc(sizeof(struct DeliveryContentEntry));
+    if (alloc_entry==NULL) return MAKERESULT(Module_Nim, NimError_BadInput);
+    memcpy(alloc_entry, entry, sizeof(struct DeliveryContentEntry));
+
+    struct DeliveryContentEntry **entry_cur = &d->content_list_first;
+    struct DeliveryContentEntry *entry_tmp;
+    while (*entry_cur) {
+        entry_tmp = *entry_cur;
+        entry_cur = &entry_tmp->next;
+    }
+    *entry_cur = alloc_entry;
+
+    return 0;
+}
+
+Result deliveryManagerGetContentEntry(DeliveryManager *d, struct DeliveryContentEntry **entry, const NcmContentMetaKey *content_meta_key, const NcmContentId *content_id) {
+    struct DeliveryContentEntry *entry_cur = d->content_list_first;
+    bool found=0;
+    while (entry_cur) {
+        if (content_meta_key && entry_cur->is_meta) {
+            if (entry_cur->content_meta_key.id==content_meta_key->id && entry_cur->content_meta_key.version==content_meta_key->version && entry_cur->content_meta_key.type==content_meta_key->type)
+                found = 1;
+            if (found && content_meta_key->type == NcmContentMetaType_SystemUpdate && entry_cur->content_meta_key.install_type!=content_meta_key->install_type) {
+                found = 0;
+            }
+        }
+        else if (content_id && memcmp(&entry_cur->content_info.info.content_id, content_id, sizeof(NcmContentId))==0)
+            found = 1;
+        if (found) {
+            *entry = entry_cur;
+            return 0;
+        }
+        entry_cur = entry_cur->next;
+    }
+    return MAKERESULT(Module_Nim, NimError_DeliveryBadContentMetaKey);
 }
 
 // We only support this with server=true.
@@ -798,5 +848,128 @@ Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_curr
     if (R_SUCCEEDED(rc) && recvhdr.data_size != 0) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
 
     return rc;
+}
+
+static Result _deliveryManagerParseMeta(DeliveryManager *d, const void* meta_buf, size_t meta_size, struct DeliveryContentEntry *entry) {
+    Result rc = MAKERESULT(Module_Nim, NimError_BadInput); // Note: not the official error but whatever.
+    u8 *meta_bufdata = (u8*)meta_buf;
+
+    if (meta_size < 0x20) return rc;
+
+    memcpy(&entry->content_meta_key, meta_bufdata, sizeof(NcmContentMetaKey));
+    entry->content_meta_key.install_type = NcmContentInstallType_Full;
+    memset(entry->content_meta_key.padding, 0, sizeof(entry->content_meta_key.install_type));
+
+    return 0;
+}
+
+Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 depth, DeliveryFnMetaLoad meta_load, void* meta_load_userdata) {
+    Result rc=0;
+    int pos;
+    char dirsep[8];
+    struct DeliveryContentEntry entry={0};
+    void* meta_buf = NULL;
+    size_t meta_size = 0;
+    if (!d->server) return MAKERESULT(Module_Nim, NimError_BadInput);
+
+    memset(dirsep, 0, sizeof(dirsep));
+    dirsep[0] = '/';
+
+    // Don't append a '/' if the path already has one.
+    pos = strlen(dirpath);
+    if (pos > 0) {
+        if (dirpath[pos-1] == '/') dirsep[0] = 0;
+    }
+
+    DIR* dir;
+    struct dirent* dp;
+    char tmp_path[PATH_MAX];
+    dir = opendir(dirpath);
+    if (!dir) return MAKERESULT(Module_Libnx, LibnxError_NotFound);
+
+    while ((dp = readdir(dir))) {
+        if (dp->d_name[0]=='.')
+            continue;
+
+        bool entrytype=0;
+
+        memset(tmp_path, 0, sizeof(tmp_path));
+        snprintf(tmp_path, sizeof(tmp_path)-1, "%s%s%s", dirpath, dirsep, dp->d_name);
+
+        struct stat tmpstat;
+        if(stat(tmp_path, &tmpstat)==-1)
+            continue;
+
+        entrytype = (tmpstat.st_mode & S_IFMT) != S_IFREG;
+
+        if (entrytype) {
+            if (depth > 0) {
+                rc = deliveryManagerScanDataDir(d, tmp_path, depth-1, meta_load, meta_load_userdata);
+                if (R_FAILED(rc)) return rc;
+            }
+        }
+        else {
+            if (strlen(dp->d_name) >= 32) {
+                bool found=0;
+
+                pos = strlen(dp->d_name)-4;
+                if (strlen(dp->d_name) == 32+4 && strncmp(&dp->d_name[pos], ".nca", 4)==0) found = 1;
+                else {
+                    pos = strlen(dp->d_name)-9;
+                    if (strlen(dp->d_name) == 32+9 && strncmp(&dp->d_name[pos], ".cnmt.nca", 9)==0) found = 1;
+                }
+                if (!found) {
+                    pos = strlen(dp->d_name);
+                    found = 1;
+                }
+
+                int pos2=0;
+                pos--;
+                for (; pos>=0 && pos2<32; pos--, pos2++) {
+                    if (!isxdigit(dp->d_name[pos])) {
+                        found = 0;
+                        break;
+                    }
+                }
+
+                if (!found) continue;
+
+                memset(&entry, 0, sizeof(entry));
+                entry.filesize = tmpstat.st_size;
+                strncpy(entry.filepath, tmp_path, sizeof(entry.filepath)-1);
+
+                rc = meta_load(meta_load_userdata, tmp_path, &meta_buf, &meta_size);
+                if (R_SUCCEEDED(rc)) {
+                    rc = _deliveryManagerParseMeta(d, meta_buf, meta_size, &entry);
+                    if (R_FAILED(rc)) return rc;
+                    entry.is_meta = 1;
+
+                    // The Meta doesn't include the content_info for the Meta itself even for non-SystemUpdate, so generate it here.
+                    for (pos2=0; pos2<32; pos2+=2) {
+                        u32 tmp=0;
+                        sscanf(&dp->d_name[pos+pos2], "%02x", &tmp);
+                        entry.content_info.info.content_id.c[pos2/2] = tmp;
+                    }
+
+                    entry.content_info.info.size[0] = (u8)(tmpstat.st_size);
+                    entry.content_info.info.size[1] = (u8)(tmpstat.st_size>>8);
+                    entry.content_info.info.size[2] = (u8)(tmpstat.st_size>>16);
+                    entry.content_info.info.size[3] = (u8)(tmpstat.st_size>>24);
+                    entry.content_info.info.size[4] = (u8)(tmpstat.st_size>>32);
+                    entry.content_info.info.size[5] = (u8)(tmpstat.st_size>>40);
+
+                    entry.content_info.info.content_type = NcmContentType_Meta;
+
+                    // TODO: entry.content_info.hash
+                }
+
+                rc = _deliveryManagerAddContentEntry(d, &entry);
+                if (R_FAILED(rc)) return rc;
+            }
+        }
+    }
+
+    closedir(dir);
+    return 0;
 }
 
