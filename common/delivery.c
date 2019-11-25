@@ -905,7 +905,7 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
         if (entrytype) {
             if (depth > 0) {
                 rc = deliveryManagerScanDataDir(d, tmp_path, depth-1, meta_load, meta_load_userdata);
-                if (R_FAILED(rc)) return rc;
+                if (R_FAILED(rc)) break;
             }
         }
         else {
@@ -941,7 +941,7 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
                 rc = meta_load(meta_load_userdata, tmp_path, &meta_buf, &meta_size);
                 if (R_SUCCEEDED(rc)) {
                     rc = _deliveryManagerParseMeta(d, meta_buf, meta_size, &entry);
-                    if (R_FAILED(rc)) return rc;
+                    if (R_FAILED(rc)) break;
                     entry.is_meta = 1;
 
                     // The Meta doesn't include the content_info for the Meta itself even for non-SystemUpdate, so generate it here.
@@ -964,12 +964,12 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
                 }
 
                 rc = _deliveryManagerAddContentEntry(d, &entry);
-                if (R_FAILED(rc)) return rc;
+                if (R_FAILED(rc)) break;
             }
         }
     }
 
     closedir(dir);
-    return 0;
+    return rc;
 }
 

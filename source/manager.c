@@ -45,10 +45,12 @@ Result handler_meta_load(void* userdata, const char* filepath, void** outbuf_ptr
 
     if (system(tmpstr) != 0) return MAKERESULT(Module_Nim, NimError_BadInput);
 
+    rc = MAKERESULT(Module_Libnx, LibnxError_NotFound);
+
     DIR* dir;
     struct dirent* dp;
     dir = opendir(dirpath);
-    if (!dir) return MAKERESULT(Module_Libnx, LibnxError_NotFound);
+    if (!dir) return rc;
 
     while ((dp = readdir(dir))) {
         if (dp->d_name[0]=='.')
@@ -71,23 +73,29 @@ Result handler_meta_load(void* userdata, const char* filepath, void** outbuf_ptr
 
         *out_filesize = tmpstat.st_size;
         *outbuf_ptr = malloc(tmpstat.st_size);
-        if (*outbuf_ptr == NULL) return MAKERESULT(Module_Nim, NimError_BadInput);
+        if (*outbuf_ptr == NULL) {
+            rc = MAKERESULT(Module_Nim, NimError_BadInput);
+            break;
+        }
 
         FILE *f = fopen(tmpstr, "rb");
         if (!f) {
             free(*outbuf_ptr);
             *outbuf_ptr = NULL;
-            return MAKERESULT(Module_Nim, NimError_BadInput);
+            rc = MAKERESULT(Module_Nim, NimError_BadInput);
+            break;
         }
         if (fread(*outbuf_ptr, 1, tmpstat.st_size, f) != tmpstat.st_size) rc = MAKERESULT(Module_Nim, NimError_BadInput);
         fclose(f);
 
         unlink(tmpstr);
 
-        return rc;
+        rc = 0;
+        break;
     }
 
-    return MAKERESULT(Module_Libnx, LibnxError_NotFound);
+    closedir(dir);
+    return rc;
 }
 
 Result handler_meta_record(void* userdata, NcmPackagedContentInfo* record, const NcmContentMetaKey* content_meta_key) {
