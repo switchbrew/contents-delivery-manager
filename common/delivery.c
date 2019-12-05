@@ -24,6 +24,12 @@ typedef int socklen_t;
 typedef uint32_t in_addr_t;
 #endif
 
+#ifndef __SWITCH__
+#include "sha2.h"
+#else
+#include "switch/crypto/sha256.h"
+#endif
+
 #include "delivery.h"
 #include "utils.h"
 
@@ -870,6 +876,15 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
     struct DeliveryContentEntry entry={0};
     void* meta_buf = NULL;
     size_t meta_size = 0;
+    size_t remaining_size, cur_size;
+    FILE *f = NULL;
+
+    #ifndef __SWITCH__
+    struct sha256_ctx hash_ctx;
+    #else
+    Sha256Context hash_ctx;
+    #endif
+
     if (!d->server) return MAKERESULT(Module_Nim, NimError_BadInput);
 
     memset(dirsep, 0, sizeof(dirsep));
@@ -933,6 +948,7 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
                 }
 
                 if (!found) continue;
+                pos++;
 
                 memset(&entry, 0, sizeof(entry));
                 entry.filesize = tmpstat.st_size;
@@ -960,7 +976,54 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
 
                     entry.content_info.info.content_type = NcmContentType_Meta;
 
-                    // TODO: entry.content_info.hash
+                    if (tmpstat.st_size > 0) { // Calculate the hash.
+                        f = fopen(tmp_path, "rb");
+                        if (f==NULL) {
+                            rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
+                        }
+                        else {
+                            memset(d->workbuf, 0, d->workbuf_size);
+
+                            #ifndef __SWITCH__
+                            sha256_init(&hash_ctx);
+                            #else
+                            sha256ContextCreate(&hash_ctx);
+                            #endif
+
+                            cur_size = d->workbuf_size;
+                            for (remaining_size=tmpstat.st_size; remaining_size>0; remaining_size-=cur_size) {
+                                if (cur_size > remaining_size) cur_size = remaining_size;
+
+                                if (fread(d->workbuf, 1, cur_size, f) != cur_size) {
+                                    rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
+                                    break;
+                                }
+
+                                #ifndef __SWITCH__
+                                sha256_update(&hash_ctx, cur_size, d->workbuf);
+                                #else
+                                sha256ContextUpdate(&hash_ctx, d->workbuf, cur_size);
+                                #endif
+                            }
+
+                            memset(d->workbuf, 0, d->workbuf_size);
+                            fclose(f);
+
+                            if (R_SUCCEEDED(rc)) {
+                                #ifndef __SWITCH__
+                                sha256_digest(&hash_ctx, sizeof(entry.content_info.hash), entry.content_info.hash);
+                                #else
+                                sha256ContextGetHash(&hash_ctx, entry.content_info.hash);
+                                #endif
+
+                                // nim doesn't do this server-side, but we will.
+                                if (memcmp(&entry.content_info.info.content_id, entry.content_info.hash, sizeof(entry.content_info.info.content_id))!=0)
+                                    rc = MAKERESULT(Module_Nim, NimError_BadInput);
+                            }
+                        }
+
+                        if (R_FAILED(rc)) break;
+                    }
                 }
 
                 rc = _deliveryManagerAddContentEntry(d, &entry);
