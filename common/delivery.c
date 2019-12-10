@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <sys/time.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <errno.h>
@@ -403,7 +404,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                     rc = _deliveryManagerMessageReceiveData(d, &content_meta_key, sizeof(content_meta_key), sizeof(content_meta_key), NULL);
 
                 if (R_SUCCEEDED(rc)) {
-                    TRACE(d, "content_meta_key: id = %016lX, version = v%u, type = 0x%x", content_meta_key.id, content_meta_key.version, content_meta_key.type);
+                    TRACE(d, "content_meta_key: id = %016"PRIX64", version = v%u, type = 0x%x", content_meta_key.id, content_meta_key.version, content_meta_key.type);
 
                     if (d->handler_get_meta_content_record) {
                         rc = d->handler_get_meta_content_record(d->handler_get_meta_content_record_userdata, &meta_content_record, &content_meta_key);
@@ -448,7 +449,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
 
                 if (R_SUCCEEDED(rc) && arg.flag == 0) {
                     pthread_mutex_lock(&d->mutex);
-                    TRACE(d, "progress_total_size = 0x%lx", d->progress_total_size);
+                    TRACE(d, "progress_total_size = 0x%"PRIx64, d->progress_total_size);
                     pthread_mutex_unlock(&d->mutex);
                 }
             break;
@@ -469,7 +470,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                 if (R_SUCCEEDED(rc)) {
                     pthread_mutex_lock(&d->mutex);
                     d->progress_current_size = le_dword(progress_value);
-                    TRACE(d, "progress_current_size = 0x%lx", d->progress_current_size);
+                    TRACE(d, "progress_current_size = 0x%"PRIx64, d->progress_current_size);
                     pthread_mutex_unlock(&d->mutex);
                 }
 

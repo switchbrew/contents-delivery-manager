@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <getopt.h>
 #include <errno.h>
 #include <dirent.h>
@@ -82,10 +83,10 @@ Result handler_meta_load(void* userdata, const char* filepath, void** outbuf_ptr
         if (!f) {
             free(*outbuf_ptr);
             *outbuf_ptr = NULL;
-            rc = MAKERESULT(Module_Nim, NimError_BadInput);
+            rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
             break;
         }
-        if (fread(*outbuf_ptr, 1, tmpstat.st_size, f) != tmpstat.st_size) rc = MAKERESULT(Module_Nim, NimError_BadInput);
+        if (fread(*outbuf_ptr, 1, tmpstat.st_size, f) != tmpstat.st_size) rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
         fclose(f);
 
         unlink(tmpstr);
@@ -113,7 +114,7 @@ Result content_transfer_init(struct DeliveryGetContentDataTransferState* state, 
     struct content_transfer_state *user_state = (struct content_transfer_state*)state->userdata;
     struct DeliveryContentEntry *entry = NULL;
 
-    if (!state->manager->server) printf("content_size: 0x%lx\n", *content_size);
+    if (!state->manager->server) printf("content_size: 0x%"PRIx64"\n", *content_size);
     else {
         rc = deliveryManagerGetContentEntry(state->manager, &entry, NULL, &state->arg->content_id);
         if (R_SUCCEEDED(rc)) {
