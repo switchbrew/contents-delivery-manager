@@ -94,6 +94,7 @@ typedef struct {
     int listen_sockfd;
     int conn_sockfd;
     Result rc;
+    FILE *log_file;
 
     s64 progress_current_size;
     s64 progress_total_size;
@@ -154,6 +155,11 @@ Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_ad
 
 /// Close a \ref DeliveryManager.
 void deliveryManagerClose(DeliveryManager *d);
+
+/// Set the FILE* for logging.
+static inline void deliveryManagerSetLogFile(DeliveryManager *d, FILE *f) {
+    d->log_file = f;
+}
 
 /// Gets the DeliveryContentEntry which has data matching the input.
 Result deliveryManagerGetContentEntry(DeliveryManager *d, struct DeliveryContentEntry **entry, const NcmContentMetaKey *content_meta_key, const NcmContentId *content_id);

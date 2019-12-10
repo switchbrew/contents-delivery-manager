@@ -107,6 +107,7 @@ Result handler_meta_record(void* userdata, NcmPackagedContentInfo* record, const
     return rc;
 }
 
+// The client handling in these are for testing, proper client handlers would write to a file / whatever.
 Result content_transfer_init(struct DeliveryGetContentDataTransferState* state, s64* content_size) {
     Result rc=0;
     struct content_transfer_state *user_state = (struct content_transfer_state*)state->userdata;
@@ -136,7 +137,7 @@ void content_transfer_exit(struct DeliveryGetContentDataTransferState* state) {
 Result content_transfer(struct DeliveryGetContentDataTransferState* state, void* buffer, u64 size, s64 offset) {
     Result rc=0;
     struct content_transfer_state *user_state = (struct content_transfer_state*)state->userdata;
-    printf("transfer: 0x%lx, 0x%lx\n", size, offset);
+
     if (state->manager->server) {
         if (fseek(user_state->f, offset, SEEK_SET)==-1) rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
         if (fread(buffer, 1, size, user_state->f) != size) rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
@@ -146,6 +147,7 @@ Result content_transfer(struct DeliveryGetContentDataTransferState* state, void*
         for (u64 i=0; i<size; i++) printf("%02X", ((u8*)buffer)[i]);
         printf("\n");
     }
+
     return rc;
 }
 
@@ -154,6 +156,7 @@ void showHelp() {
 //---------------------------------------------------------------------------------
     puts("Usage: contents_delivery_manager [options]\n");
     puts("--help,    -h   Display this information.");
+    puts("--log,     -l   Enable logging to the specified file, or if path not specified stdout.");
     puts("--server,  -s   Run as a server (default).");
     puts("--client,  -c   Run as a client.");
     puts("--address, -a   Hostname or IPv4 address to bind/connect to. With server the default is 0.0.0.0.");
@@ -162,7 +165,6 @@ void showHelp() {
     puts("--depth,   -e   Sysupdate data dir scanning depth, the default is 3.");
     puts("\n");
 }
-
 
 //---------------------------------------------------------------------------------
 int main(int argc, char **argv) {
@@ -177,6 +179,8 @@ int main(int argc, char **argv) {
     static int server=1;
     u16 port=DELIVERY_PORT_DEFAULT;
     s32 depth=3;
+    FILE *log_file = NULL;
+    const char *log_filepath = NULL;
 
     if (argc < 2) {
         showHelp();
@@ -186,6 +190,7 @@ int main(int argc, char **argv) {
     while(1) {
         static struct option long_options[] = {
             {"help",    no_argument,       0,       'h'},
+            {"log",     optional_argument, 0,       'l'},
             {"server",  no_argument,       &server,  1 },
             {"client",  no_argument,       &server,  0 },
             {"address", required_argument, 0,       'a'},
@@ -198,7 +203,7 @@ int main(int argc, char **argv) {
         /* getopt_long stores the option index here. */
         int option_index = 0, c;
 
-        c = getopt_long (argc, argv, "hsca:p:d:e:", long_options, &option_index);
+        c = getopt_long (argc, argv, "hl::sca:p:d:e:", long_options, &option_index);
 
         /* Detect the end of the options. */
         if (c == -1)
@@ -208,6 +213,10 @@ int main(int argc, char **argv) {
 
         case 'h':
             showHelp();
+            break;
+        case 'l':
+            log_filepath = optarg;
+            if (log_filepath==NULL) log_file = stdout;
             break;
         case 'a':
             address = optarg;
@@ -237,11 +246,6 @@ int main(int argc, char **argv) {
 
     }
 
-    if (datadir== NULL) {
-        showHelp();
-        return 1;
-    }
-
 #ifdef __WIN32__
     WSADATA wsa_data;
     if (WSAStartup (MAKEWORD(2,2), &wsa_data)) {
@@ -264,47 +268,62 @@ int main(int argc, char **argv) {
         nxaddr.s_addr = htonl(INADDR_ANY);
 
     if (nxaddr.s_addr == INADDR_NONE) {
-        fprintf(stderr,"Invalid address.\n");
-        return 1;
+        fprintf(stderr, "Invalid address.\n");
+        ret = 1;
     }
 
-    if (server && datadir==NULL) {
-        fprintf(stderr,"datadir is required.\n");
-        return 1;
+    if (ret==0 && server && datadir==NULL) {
+        fprintf(stderr, "datadir is required.\n");
+        ret = 1;
     }
 
-    rc = deliveryManagerCreate(&manager, server, &nxaddr, port);
-    if (R_FAILED(rc)) printf("deliveryManagerCreate() failed: 0x%x\n", rc);
-    if (R_SUCCEEDED(rc)) {
-        deliveryManagerSetHandlerGetMetaContentRecord(&manager, handler_meta_record, &manager);
-        deliveryManagerSetHandlersGetContent(&manager, &transfer_state, content_transfer_init, content_transfer_exit, content_transfer);
-        if (server) {
-            rc = deliveryManagerScanDataDir(&manager, datadir, depth, handler_meta_load, NULL);
-            if (R_FAILED(rc)) printf("deliveryManagerScanDataDir() failed: 0x%x\n", rc);
+    if (ret==0 && log_filepath) {
+        log_file = fopen(log_filepath, "w");
+        if (log_file==NULL) {
+            fprintf(stderr, "Failed to open log_filepath.\n");
+            ret = 1;
+        }
+    }
 
-            if (R_SUCCEEDED(rc)) {
-                rc = deliveryManagerRequestRun(&manager);
-                if (R_FAILED(rc)) printf("deliveryManagerRequestRun() failed: 0x%x\n", rc);
+    if (ret==0) {
+        rc = deliveryManagerCreate(&manager, server, &nxaddr, port);
+        if (R_FAILED(rc)) printf("deliveryManagerCreate() failed: 0x%x\n", rc);
+        if (R_SUCCEEDED(rc)) {
+            if (log_file) deliveryManagerSetLogFile(&manager, log_file);
+            deliveryManagerSetHandlerGetMetaContentRecord(&manager, handler_meta_record, &manager);
+            deliveryManagerSetHandlersGetContent(&manager, &transfer_state, content_transfer_init, content_transfer_exit, content_transfer);
+            if (server) {
+                rc = deliveryManagerScanDataDir(&manager, datadir, depth, handler_meta_load, NULL);
+                if (R_FAILED(rc)) printf("deliveryManagerScanDataDir() failed: 0x%x\n", rc);
+
+                if (R_SUCCEEDED(rc)) {
+                    rc = deliveryManagerRequestRun(&manager);
+                    if (R_FAILED(rc)) printf("deliveryManagerRequestRun() failed: 0x%x\n", rc);
+                }
+
+                if (R_SUCCEEDED(rc)) printf("Server started.\n");
+
+                if (R_SUCCEEDED(rc)) {
+                    // We could use deliveryManagerGetProgress() to print the progress, but don't bother - would also have to handle waiting for the task to finish differently, since deliveryManagerGetResult() blocks until it's done.
+                    rc = deliveryManagerGetResult(&manager);
+                    printf("deliveryManagerGetResult(): 0x%x\n", rc);
+                }
+            }
+            else {
+                printf("Connected to server.\n");
+
+                // This is for testing, an actual client would use the various deliveryManagerClient*() funcs.
+
+                rc = deliveryManagerClientRequestExit(&manager);
+                printf("deliveryManagerClientRequestExit(): 0x%x\n", rc);
             }
 
-            if (R_SUCCEEDED(rc)) printf("Server started.\n");
-
-            if (R_SUCCEEDED(rc)) {
-                // We could use deliveryManagerGetProgress() to print the progress, but don't bother - would also have to handle waiting for the task to finish differently, since deliveryManagerGetResult() blocks until it's done.
-                rc = deliveryManagerGetResult(&manager);
-                printf("deliveryManagerGetResult(): 0x%x\n", rc);
-            }
+            deliveryManagerClose(&manager);
         }
-        else {
-            printf("Connected to server.\n");
-
-            rc = deliveryManagerClientRequestExit(&manager);
-            printf("deliveryManagerClientRequestExit(): 0x%x\n", rc);
-        }
-
-        deliveryManagerClose(&manager);
+        if (R_FAILED(rc)) ret = 1;
     }
-    if (R_FAILED(rc)) ret = 1;
+
+    if (log_file && log_filepath) fclose(log_file);
 
 #ifdef __WIN32__
     WSACleanup ();

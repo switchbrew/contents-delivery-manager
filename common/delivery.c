@@ -33,6 +33,8 @@ typedef uint32_t in_addr_t;
 #include "delivery.h"
 #include "utils.h"
 
+#define TRACE(_d,fmt,...) if (_d->log_file) fprintf(_d->log_file, "%s: " fmt "\n", __PRETTY_FUNCTION__, ## __VA_ARGS__)
+
 static void _deliveryManagerCreateRequestMessageHeader(DeliveryMessageHeader *hdr, DeliveryMessageId id, s64 size1);
 static void _deliveryManagerCreateReplyMessageHeader(DeliveryMessageHeader *hdr, DeliveryMessageId id, s64 size1);
 
@@ -345,6 +347,7 @@ static Result _deliveryManagerGetContentTransferHandler(void* userdata, void* bu
 
     if (d->handler_get_content.transfer_handler) {
         rc = d->handler_get_content.transfer_handler(transfer_state, buf, size, offset);
+        if (R_FAILED(rc)) TRACE(d, "handler_get_content.transfer_handler() failed: 0x%x.", rc);
     }
     else
         rc = MAKERESULT(Module_Nim, NimError_BadInput);
@@ -358,6 +361,10 @@ static Result _deliveryManagerGetContentTransferHandler(void* userdata, void* bu
     return rc;
 }
 
+static void _deliveryManagerPrintContentId(char *outstr, const NcmContentId *content_id) {
+    for (u32 pos=0; pos<16; pos++) snprintf(&outstr[pos*2], 3, "%02x", content_id->c[pos]);
+}
+
 static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
     Result rc=0;
     DeliveryMessageHeader recvhdr={0}, sendhdr={0};
@@ -369,6 +376,9 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
     s64 progress_value;
     struct DeliveryGetContentDataTransferState transfer_state = {.manager = d, .arg = &arg, .userdata = d->handler_get_content.userdata};
     DeliveryDataTransfer transfer = {.userdata = &transfer_state, .transfer_handler = _deliveryManagerGetContentTransferHandler};
+    char contentid_str[33];
+
+    TRACE(d, "Entering message handler loop.");
 
     while (R_SUCCEEDED(rc)) {
         rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
@@ -376,10 +386,13 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
 
         switch (recvhdr.id) {
             case DeliveryMessageId_Exit:
+                TRACE(d, "Exiting as requested by the client.");
                 return 0;
             break;
 
             case DeliveryMessageId_GetMetaContentRecord:
+                TRACE(d, "Processing DeliveryMessageId_GetMetaContentRecord...");
+
                 memset(&content_meta_key, 0, sizeof(content_meta_key));
                 memset(&meta_content_record, 0, sizeof(meta_content_record));
 
@@ -390,8 +403,12 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                     rc = _deliveryManagerMessageReceiveData(d, &content_meta_key, sizeof(content_meta_key), sizeof(content_meta_key), NULL);
 
                 if (R_SUCCEEDED(rc)) {
-                    if (d->handler_get_meta_content_record)
+                    TRACE(d, "content_meta_key: id = %016lX, version = v%u, type = 0x%x", content_meta_key.id, content_meta_key.version, content_meta_key.type);
+
+                    if (d->handler_get_meta_content_record) {
                         rc = d->handler_get_meta_content_record(d->handler_get_meta_content_record_userdata, &meta_content_record, &content_meta_key);
+                        if (R_FAILED(rc)) TRACE(d, "handler_get_meta_content_record() failed: 0x%x.", rc);
+                    }
                 }
 
                 if (R_SUCCEEDED(rc)) {
@@ -401,6 +418,8 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
             break;
 
             case DeliveryMessageId_GetContent:
+                TRACE(d, "Processing DeliveryMessageId_GetContent...");
+
                 memset(&arg, 0, sizeof(arg));
                 content_size=0;
 
@@ -411,7 +430,14 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                     rc = _deliveryManagerMessageReceiveData(d, &arg, sizeof(arg), sizeof(arg), NULL);
 
                 if (R_SUCCEEDED(rc)) {
-                    if (d->handler_get_content.init_handler) rc = d->handler_get_content.init_handler(&transfer_state, &content_size);
+                    memset(contentid_str, 0, sizeof(contentid_str));
+                    _deliveryManagerPrintContentId(contentid_str, &arg.content_id);
+                    TRACE(d, "arg: content_id = %s, flag = %d", contentid_str, arg.flag);
+
+                    if (d->handler_get_content.init_handler) {
+                        rc = d->handler_get_content.init_handler(&transfer_state, &content_size);
+                        if (R_FAILED(rc)) TRACE(d, "handler_get_content.init_handler() failed: 0x%x.", rc);
+                    }
                 }
 
                 if (R_SUCCEEDED(rc)) {
@@ -419,11 +445,19 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                     rc = _deliveryManagerMessageSend(d, &sendhdr, d->workbuf, d->workbuf_size, &transfer);
                     if (d->handler_get_content.exit_handler) d->handler_get_content.exit_handler(&transfer_state);
                 }
+
+                if (R_SUCCEEDED(rc) && arg.flag == 0) {
+                    pthread_mutex_lock(&d->mutex);
+                    TRACE(d, "progress_total_size = 0x%lx", d->progress_total_size);
+                    pthread_mutex_unlock(&d->mutex);
+                }
             break;
 
             // We don't support DeliveryMessageId_GetCommonTicket. nim server supports it for SystemUpdate/Application, but the nim client only uses it for Application (game-updates).
 
             case DeliveryMessageId_UpdateProgress:
+                TRACE(d, "Processing DeliveryMessageId_UpdateProgress...");
+
                 progress_value = 0;
 
                 if (recvhdr.data_size != sizeof(progress_value))
@@ -435,6 +469,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                 if (R_SUCCEEDED(rc)) {
                     pthread_mutex_lock(&d->mutex);
                     d->progress_current_size = le_dword(progress_value);
+                    TRACE(d, "progress_current_size = 0x%lx", d->progress_current_size);
                     pthread_mutex_unlock(&d->mutex);
                 }
 
@@ -445,9 +480,12 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
             break;
 
             default:
+                TRACE(d, "Bad MessageId: 0x%x.", recvhdr.id);
                 rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId);
             break;
         }
+
+        TRACE(d, "Finshed processing for this message.");
     }
 
     return rc;
@@ -461,6 +499,8 @@ static void* _deliveryManagerServerTask(void* arg) {
 
     rc = _deliveryManagerServerTaskSocketSetup(d);
     if (R_SUCCEEDED(rc)) rc = _deliveryManagerServerTaskMessageHandler(d);
+
+    TRACE(d, "Returning Result 0x%x.", rc);
 
     pthread_mutex_lock(&d->mutex);
     d->rc = rc;
@@ -878,6 +918,7 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
     size_t meta_size = 0;
     size_t remaining_size, cur_size;
     FILE *f = NULL;
+    char contentid_str[33];
 
     #ifndef __SWITCH__
     struct sha256_ctx hash_ctx;
@@ -954,32 +995,36 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
                 entry.filesize = tmpstat.st_size;
                 strncpy(entry.filepath, tmp_path, sizeof(entry.filepath)-1);
 
+                for (pos2=0; pos2<32; pos2+=2) {
+                    u32 tmp=0;
+                    sscanf(&dp->d_name[pos+pos2], "%02x", &tmp);
+                    entry.content_info.info.content_id.c[pos2/2] = tmp;
+                }
+
+                entry.content_info.info.size[0] = (u8)(tmpstat.st_size);
+                entry.content_info.info.size[1] = (u8)(tmpstat.st_size>>8);
+                entry.content_info.info.size[2] = (u8)(tmpstat.st_size>>16);
+                entry.content_info.info.size[3] = (u8)(tmpstat.st_size>>24);
+                entry.content_info.info.size[4] = (u8)(tmpstat.st_size>>32);
+                entry.content_info.info.size[5] = (u8)(tmpstat.st_size>>40);
+
                 rc = meta_load(meta_load_userdata, tmp_path, &meta_buf, &meta_size);
                 if (R_SUCCEEDED(rc)) {
                     rc = _deliveryManagerParseMeta(d, meta_buf, meta_size, &entry);
-                    if (R_FAILED(rc)) break;
+                    if (R_FAILED(rc)) {
+                        TRACE(d, "_deliveryManagerParseMeta() failed (0x%x) with path: %s", rc, tmp_path);
+                        break;
+                    }
                     entry.is_meta = 1;
 
                     // The Meta doesn't include the content_info for the Meta itself even for non-SystemUpdate, so generate it here.
-                    for (pos2=0; pos2<32; pos2+=2) {
-                        u32 tmp=0;
-                        sscanf(&dp->d_name[pos+pos2], "%02x", &tmp);
-                        entry.content_info.info.content_id.c[pos2/2] = tmp;
-                    }
-
-                    entry.content_info.info.size[0] = (u8)(tmpstat.st_size);
-                    entry.content_info.info.size[1] = (u8)(tmpstat.st_size>>8);
-                    entry.content_info.info.size[2] = (u8)(tmpstat.st_size>>16);
-                    entry.content_info.info.size[3] = (u8)(tmpstat.st_size>>24);
-                    entry.content_info.info.size[4] = (u8)(tmpstat.st_size>>32);
-                    entry.content_info.info.size[5] = (u8)(tmpstat.st_size>>40);
-
                     entry.content_info.info.content_type = NcmContentType_Meta;
 
                     if (tmpstat.st_size > 0) { // Calculate the hash.
                         f = fopen(tmp_path, "rb");
                         if (f==NULL) {
                             rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
+                            TRACE(d, "Failed to open content file: %s", tmp_path);
                         }
                         else {
                             memset(d->workbuf, 0, d->workbuf_size);
@@ -996,6 +1041,7 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
 
                                 if (fread(d->workbuf, 1, cur_size, f) != cur_size) {
                                     rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
+                                    TRACE(d, "Reading the content file failed: %s", tmp_path);
                                     break;
                                 }
 
@@ -1017,14 +1063,20 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
                                 #endif
 
                                 // nim doesn't do this server-side, but we will.
-                                if (memcmp(&entry.content_info.info.content_id, entry.content_info.hash, sizeof(entry.content_info.info.content_id))!=0)
+                                if (memcmp(&entry.content_info.info.content_id, entry.content_info.hash, sizeof(entry.content_info.info.content_id))!=0) {
                                     rc = MAKERESULT(Module_Nim, NimError_BadInput);
+                                    TRACE(d, "ContentId/hash mismatch for the following Meta content path: %s", tmp_path);
+                                }
                             }
                         }
 
                         if (R_FAILED(rc)) break;
                     }
                 }
+
+                memset(contentid_str, 0, sizeof(contentid_str));
+                _deliveryManagerPrintContentId(contentid_str, &entry.content_info.info.content_id);
+                TRACE(d, "Adding (is_meta=%d) content entry with ContentId %s for path: %s", entry.is_meta, contentid_str, tmp_path);
 
                 rc = _deliveryManagerAddContentEntry(d, &entry);
                 if (R_FAILED(rc)) break;
