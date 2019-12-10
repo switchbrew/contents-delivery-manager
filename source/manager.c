@@ -30,13 +30,13 @@ struct content_transfer_state {
 // TODO: Improve this.
 Result handler_meta_load(void* userdata, const char* filepath, void** outbuf_ptr, size_t *out_filesize) {
     Result rc=0;
-    const char *tmpdir = "tmpdir";
+    char *tmpdir = (char*)userdata;
     char tmpstr[PATH_MAX+257];
     char dirpath[PATH_MAX];
     memset(tmpstr, 0, sizeof(tmpstr));
     memset(dirpath, 0, sizeof(dirpath));
     snprintf(dirpath, sizeof(dirpath)-1, "%s/section0", tmpdir);
-    snprintf(tmpstr, sizeof(tmpstr)-1, "hactool --section0dir=%s \"%s\" > %s/hactool_out 2>&1", dirpath, filepath, tmpdir); // TODO: proper tmpdir
+    snprintf(tmpstr, sizeof(tmpstr)-1, "hactool \"--section0dir=%s\" \"%s\" > %s/hactool_out 2>&1", dirpath, filepath, tmpdir);
 
 #ifdef _WIN32
     _mkdir(tmpdir);
@@ -80,7 +80,7 @@ Result handler_meta_load(void* userdata, const char* filepath, void** outbuf_ptr
         }
 
         FILE *f = fopen(tmpstr, "rb");
-        if (!f) {
+        if (f == NULL) {
             free(*outbuf_ptr);
             *outbuf_ptr = NULL;
             rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
@@ -164,6 +164,7 @@ void showHelp() {
     puts("--port,    -p   Port, the default is 55556.");
     puts("--datadir, -d   Sysupdate data dir path.");
     puts("--depth,   -e   Sysupdate data dir scanning depth, the default is 3.");
+    puts("--tmpdir,  -t   Temporary directory path used during datadir scanning. The default is 'tmpdir'.");
     puts("\n");
 }
 
@@ -182,6 +183,7 @@ int main(int argc, char **argv) {
     s32 depth=3;
     FILE *log_file = NULL;
     const char *log_filepath = NULL;
+    char *tmpdir_path = "tmpdir";
 
     if (argc < 2) {
         showHelp();
@@ -198,13 +200,14 @@ int main(int argc, char **argv) {
             {"port",    required_argument, 0,       'p'},
             {"datadir", required_argument, 0,       'd'},
             {"depth",   required_argument, 0,       'e'},
+            {"tmpdir",  required_argument, 0,       't'},
             {0, 0, 0, 0}
         };
 
         /* getopt_long stores the option index here. */
         int option_index = 0, c;
 
-        c = getopt_long (argc, argv, "hl::sca:p:d:e:", long_options, &option_index);
+        c = getopt_long (argc, argv, "hl::sca:p:d:e:t:", long_options, &option_index);
 
         /* Detect the end of the options. */
         if (c == -1)
@@ -243,8 +246,10 @@ int main(int argc, char **argv) {
                 return 1;
             }
             break;
+        case 't':
+            tmpdir_path = optarg;
+            break;
         }
-
     }
 
 #ifdef __WIN32__
@@ -294,7 +299,7 @@ int main(int argc, char **argv) {
             deliveryManagerSetHandlerGetMetaContentRecord(&manager, handler_meta_record, &manager);
             deliveryManagerSetHandlersGetContent(&manager, &transfer_state, content_transfer_init, content_transfer_exit, content_transfer);
             if (server) {
-                rc = deliveryManagerScanDataDir(&manager, datadir, depth, handler_meta_load, NULL);
+                rc = deliveryManagerScanDataDir(&manager, datadir, depth, handler_meta_load, tmpdir_path);
                 if (R_FAILED(rc)) printf("deliveryManagerScanDataDir() failed: 0x%x\n", rc);
 
                 if (R_SUCCEEDED(rc)) {
