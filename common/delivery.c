@@ -173,7 +173,7 @@ static Result _deliveryManagerCreateServerSocket(DeliveryManager *d) {
     }
 
     if (ret != 0 && R_SUCCEEDED(rc)) {
-        rc = _deliveryManagerGetSocketError(d, NULL);
+        rc = _deliveryManagerGetSocketError(d, msg);
     }
 
     if (ret == 0) d->listen_sockfd = sockfd;
@@ -847,7 +847,7 @@ Result deliveryManagerClientGetMetaContentRecord(DeliveryManager *d, DeliveryCon
         memcpy(&out->content_id, &record.info.content_id, sizeof(NcmContentId));
         out->content_size = (s64)record.info.size[0x0] | ((s64)record.info.size[0x1]<<8) | ((s64)record.info.size[0x2]<<16) | ((s64)record.info.size[0x3]<<24) | ((s64)record.info.size[0x4]<<32) | ((s64)record.info.size[0x5]<<40);
         out->unk_x28 = 0x101;
-        memcpy(&out->content_meta_key, content_meta_key, sizeof(content_meta_key));
+        memcpy(&out->content_meta_key, content_meta_key, sizeof(*content_meta_key));
         memcpy(out->hash, record.hash, sizeof(record.hash));
     }
 
@@ -983,7 +983,7 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
                 int pos2=0;
                 pos--;
                 for (; pos>=0 && pos2<32; pos--, pos2++) {
-                    if (!isxdigit(dp->d_name[pos])) {
+                    if (!isxdigit((int)dp->d_name[pos])) {
                         found = 0;
                         break;
                     }
@@ -994,7 +994,8 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
 
                 memset(&entry, 0, sizeof(entry));
                 entry.filesize = tmpstat.st_size;
-                strncpy(entry.filepath, tmp_path, sizeof(entry.filepath)-1);
+                strncpy(entry.filepath, tmp_path, sizeof(entry.filepath));
+                entry.filepath[sizeof(entry.filepath)-1] = 0;
 
                 for (pos2=0; pos2<32; pos2+=2) {
                     u32 tmp=0;
