@@ -6,7 +6,7 @@ AC_INIT([contents-delivery-manager],[1.0.0],[https://github.com/switchbrew/conte
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([source/manager.c])
 
-AM_INIT_AUTOMAKE([subdir-objects foreign])
+AM_INIT_AUTOMAKE([foreign])
 
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
