@@ -910,6 +910,62 @@ static Result _deliveryManagerParseMeta(DeliveryManager *d, const void* meta_buf
     return 0;
 }
 
+Result deliveryManagerLoadMetaFromFs(const char *dirpath, void** outbuf_ptr, size_t *out_filesize) {
+    Result rc = MAKERESULT(Module_Libnx, LibnxError_NotFound);
+    char tmpstr[PATH_MAX];
+
+    DIR* dir;
+    struct dirent* dp;
+    dir = opendir(dirpath);
+    if (!dir) return rc;
+
+    while ((dp = readdir(dir))) {
+        if (dp->d_name[0]=='.')
+            continue;
+
+        bool entrytype=0;
+
+        memset(tmpstr, 0, sizeof(tmpstr));
+        snprintf(tmpstr, sizeof(tmpstr)-1, "%s%s%s", dirpath, "/", dp->d_name);
+
+        struct stat tmpstat;
+        if(stat(tmpstr, &tmpstat)==-1)
+            continue;
+
+        entrytype = (tmpstat.st_mode & S_IFMT) != S_IFREG;
+
+        if (entrytype) continue;
+
+        if (strncmp(&dp->d_name[strlen(dp->d_name)-5], ".cnmt", 5)!=0) continue;
+
+        rc = 0;
+
+        *out_filesize = tmpstat.st_size;
+        *outbuf_ptr = malloc(tmpstat.st_size);
+        if (*outbuf_ptr == NULL) {
+            rc = MAKERESULT(Module_Nim, NimError_BadInput);
+            break;
+        }
+
+        FILE *f = fopen(tmpstr, "rb");
+        if (f == NULL) {
+            free(*outbuf_ptr);
+            *outbuf_ptr = NULL;
+            rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
+            break;
+        }
+        if (fread(*outbuf_ptr, 1, tmpstat.st_size, f) != tmpstat.st_size) rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
+        fclose(f);
+
+        unlink(tmpstr);
+
+        break;
+    }
+
+    closedir(dir);
+    return rc;
+}
+
 Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 depth, DeliveryFnMetaLoad meta_load, void* meta_load_userdata) {
     Result rc=0;
     int pos;
@@ -1010,7 +1066,7 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
                 entry.content_info.info.size[4] = (u8)(tmpstat.st_size>>32);
                 entry.content_info.info.size[5] = (u8)(tmpstat.st_size>>40);
 
-                rc = meta_load(meta_load_userdata, tmp_path, &meta_buf, &meta_size);
+                rc = meta_load(meta_load_userdata, &entry, tmp_path, &meta_buf, &meta_size);
                 if (R_SUCCEEDED(rc)) {
                     rc = _deliveryManagerParseMeta(d, meta_buf, meta_size, &entry);
                     if (R_FAILED(rc)) {
@@ -1078,7 +1134,7 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
 
                 memset(contentid_str, 0, sizeof(contentid_str));
                 _deliveryManagerPrintContentId(contentid_str, &entry.content_info.info.content_id);
-                TRACE(d, "Adding (is_meta=%d) content entry with ContentId %s for path: %s", entry.is_meta, contentid_str, tmp_path);
+                TRACE(d, "Adding (is_meta=%d) content entry with ContentId %s. meta_load() returned 0x%x. Path: %s", entry.is_meta, contentid_str, rc, tmp_path);
 
                 rc = _deliveryManagerAddContentEntry(d, &entry);
                 if (R_FAILED(rc)) break;

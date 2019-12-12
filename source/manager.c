@@ -28,7 +28,7 @@ struct content_transfer_state {
 };
 
 // TODO: Improve this.
-Result handler_meta_load(void* userdata, const char* filepath, void** outbuf_ptr, size_t *out_filesize) {
+Result handler_meta_load(void* userdata, struct DeliveryContentEntry *entry, const char* filepath, void** outbuf_ptr, size_t *out_filesize) {
     Result rc=0;
     char *tmpdir = (char*)userdata;
     char tmpstr[PATH_MAX+257];
@@ -46,56 +46,7 @@ Result handler_meta_load(void* userdata, const char* filepath, void** outbuf_ptr
 
     if (system(tmpstr) != 0) return MAKERESULT(Module_Nim, NimError_BadInput);
 
-    rc = MAKERESULT(Module_Libnx, LibnxError_NotFound);
-
-    DIR* dir;
-    struct dirent* dp;
-    dir = opendir(dirpath);
-    if (!dir) return rc;
-
-    while ((dp = readdir(dir))) {
-        if (dp->d_name[0]=='.')
-            continue;
-
-        bool entrytype=0;
-
-        memset(tmpstr, 0, sizeof(tmpstr));
-        snprintf(tmpstr, sizeof(tmpstr)-1, "%s%s%s", dirpath, "/", dp->d_name);
-
-        struct stat tmpstat;
-        if(stat(tmpstr, &tmpstat)==-1)
-            continue;
-
-        entrytype = (tmpstat.st_mode & S_IFMT) != S_IFREG;
-
-        if (entrytype) continue;
-
-        if (strncmp(&dp->d_name[strlen(dp->d_name)-5], ".cnmt", 5)!=0) continue;
-
-        *out_filesize = tmpstat.st_size;
-        *outbuf_ptr = malloc(tmpstat.st_size);
-        if (*outbuf_ptr == NULL) {
-            rc = MAKERESULT(Module_Nim, NimError_BadInput);
-            break;
-        }
-
-        FILE *f = fopen(tmpstr, "rb");
-        if (f == NULL) {
-            free(*outbuf_ptr);
-            *outbuf_ptr = NULL;
-            rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
-            break;
-        }
-        if (fread(*outbuf_ptr, 1, tmpstat.st_size, f) != tmpstat.st_size) rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
-        fclose(f);
-
-        unlink(tmpstr);
-
-        rc = 0;
-        break;
-    }
-
-    closedir(dir);
+    rc = deliveryManagerLoadMetaFromFs(dirpath, outbuf_ptr, out_filesize);
     return rc;
 }
 
@@ -141,7 +92,9 @@ Result content_transfer(struct DeliveryGetContentDataTransferState* state, void*
 
     if (state->manager->server) {
         if (fseek(user_state->f, offset, SEEK_SET)==-1) rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
-        if (fread(buffer, 1, size, user_state->f) != size) rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
+        if (R_SUCCEEDED(rc)) {
+            if (fread(buffer, 1, size, user_state->f) != size) rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
+        }
     }
     else {
         printf("data: ");
@@ -299,6 +252,7 @@ int main(int argc, char **argv) {
             deliveryManagerSetHandlerGetMetaContentRecord(&manager, handler_meta_record, &manager);
             deliveryManagerSetHandlersGetContent(&manager, &transfer_state, content_transfer_init, content_transfer_exit, content_transfer);
             if (server) {
+                printf("Scanning datadir...\n");
                 rc = deliveryManagerScanDataDir(&manager, datadir, depth, handler_meta_load, tmpdir_path);
                 if (R_FAILED(rc)) printf("deliveryManagerScanDataDir() failed: 0x%x\n", rc);
 

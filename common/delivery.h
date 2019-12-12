@@ -14,6 +14,7 @@
 #define DELIVERY_MESSAGE_MAGICNUM_REPLY 0x7352444c
 
 struct DeliveryGetContentDataTransferState;
+struct DeliveryContentEntry;
 
 /// Handler func for GetMetaContentRecord, params: (userdata, output NcmPackagedContentInfo, input NcmContentMetaKey).
 typedef Result (*DeliveryFnGetMetaContentRecord)(void*, NcmPackagedContentInfo*, const NcmContentMetaKey*);
@@ -33,8 +34,8 @@ typedef void (*DeliveryFnContentTransferExit)(struct DeliveryGetContentDataTrans
 /// Content data transfer func, params: (state, buffer, size, offset)
 typedef Result (*DeliveryFnContentTransfer)(struct DeliveryGetContentDataTransferState*, void*, u64, s64);
 
-/// .cnmt loading func, params: (userdata, filepath, ptr to output buffer, ptr to output size)
-typedef Result (*DeliveryFnMetaLoad)(void*, const char*, void**, size_t*);
+/// .cnmt loading func, params: (userdata, DeliveryContentEntry*, filepath, ptr to output buffer, ptr to output size)
+typedef Result (*DeliveryFnMetaLoad)(void*, struct DeliveryContentEntry*, const char*, void**, size_t*);
 
 /// Result module values
 enum {
@@ -193,6 +194,9 @@ Result deliveryManagerClientGetContent(DeliveryManager *d, const DeliveryContent
 
 /// Client-mode only. Update the server progress_current_size.
 Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_current_size);
+
+/// Helper func for use by \ref DeliveryFnMetaLoad. dirpath is the dirpath for the Meta content fs.
+Result deliveryManagerLoadMetaFromFs(const char *dirpath, void** outbuf_ptr, size_t *out_filesize);
 
 /// Server-mode only. Scan the specified sysupdate data-dir.
 Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 depth, DeliveryFnMetaLoad meta_load, void* meta_load_userdata);
