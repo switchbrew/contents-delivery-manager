@@ -27,16 +27,18 @@ struct content_transfer_state {
     FILE *f;
 };
 
-// TODO: Improve this.
 Result handler_meta_load(void* userdata, struct DeliveryContentEntry *entry, const char* filepath, void** outbuf_ptr, size_t *out_filesize) {
     Result rc=0;
     char *tmpdir = (char*)userdata;
-    char tmpstr[PATH_MAX+257];
+    char tmpstr[PATH_MAX+PATH_MAX+40];
     char dirpath[PATH_MAX];
+    char redir_path[PATH_MAX];
     memset(tmpstr, 0, sizeof(tmpstr));
     memset(dirpath, 0, sizeof(dirpath));
+    memset(redir_path, 0, sizeof(redir_path));
     snprintf(dirpath, sizeof(dirpath)-1, "%s/section0", tmpdir);
-    snprintf(tmpstr, sizeof(tmpstr)-1, "hactool \"--section0dir=%s\" \"%s\" > %s/hactool_out 2>&1", dirpath, filepath, tmpdir);
+    snprintf(redir_path, sizeof(redir_path)-1, "%s/hactool_out", tmpdir);
+    snprintf(tmpstr, sizeof(tmpstr)-1, "hactool \"--section0dir=%s\" \"%s\" > \"%s\" 2>&1", dirpath, filepath, redir_path);
 
 #ifdef _WIN32
     _mkdir(tmpdir);
@@ -46,7 +48,10 @@ Result handler_meta_load(void* userdata, struct DeliveryContentEntry *entry, con
 
     if (system(tmpstr) != 0) return MAKERESULT(Module_Nim, NimError_BadInput);
 
-    rc = deliveryManagerLoadMetaFromFs(dirpath, outbuf_ptr, out_filesize);
+    rc = deliveryManagerLoadMetaFromFs(dirpath, outbuf_ptr, out_filesize, true);
+    rmdir(dirpath);
+    unlink(redir_path);
+    rmdir(tmpdir);
     return rc;
 }
 
@@ -117,7 +122,7 @@ void showHelp() {
     puts("--port,    -p   Port, the default is 55556.");
     puts("--datadir, -d   Sysupdate data dir path.");
     puts("--depth,   -e   Sysupdate data dir scanning depth, the default is 3.");
-    puts("--tmpdir,  -t   Temporary directory path used during datadir scanning. The default is 'tmpdir'.");
+    puts("--tmpdir,  -t   Temporary directory path used during datadir scanning, this will be automatically deleted when usage is finished. The default is 'tmpdir'.");
     puts("\n");
 }
 

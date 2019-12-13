@@ -910,7 +910,7 @@ static Result _deliveryManagerParseMeta(DeliveryManager *d, const void* meta_buf
     return 0;
 }
 
-Result deliveryManagerLoadMetaFromFs(const char *dirpath, void** outbuf_ptr, size_t *out_filesize) {
+Result deliveryManagerLoadMetaFromFs(const char *dirpath, void** outbuf_ptr, size_t *out_filesize, bool deleteflag) {
     Result rc = MAKERESULT(Module_Libnx, LibnxError_NotFound);
     char tmpstr[PATH_MAX];
 
@@ -957,7 +957,7 @@ Result deliveryManagerLoadMetaFromFs(const char *dirpath, void** outbuf_ptr, siz
         if (fread(*outbuf_ptr, 1, tmpstat.st_size, f) != tmpstat.st_size) rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
         fclose(f);
 
-        unlink(tmpstr);
+        if (deleteflag) unlink(tmpstr);
 
         break;
     }

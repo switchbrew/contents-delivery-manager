@@ -196,7 +196,7 @@ Result deliveryManagerClientGetContent(DeliveryManager *d, const DeliveryContent
 Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_current_size);
 
 /// Helper func for use by \ref DeliveryFnMetaLoad. dirpath is the dirpath for the Meta content fs.
-Result deliveryManagerLoadMetaFromFs(const char *dirpath, void** outbuf_ptr, size_t *out_filesize);
+Result deliveryManagerLoadMetaFromFs(const char *dirpath, void** outbuf_ptr, size_t *out_filesize, bool deleteflag);
 
 /// Server-mode only. Scan the specified sysupdate data-dir.
 Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 depth, DeliveryFnMetaLoad meta_load, void* meta_load_userdata);
