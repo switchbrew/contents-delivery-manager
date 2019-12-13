@@ -709,10 +709,13 @@ Result deliveryManagerCreate(DeliveryManager *d, bool server, const struct in_ad
         memset(d, 0, sizeof(*d));
     }
 
+    if (R_SUCCEEDED(rc)) d->initialized = true;
+
     return rc;
 }
 
 void deliveryManagerClose(DeliveryManager *d) {
+    if (!d->initialized) return;
     deliveryManagerCancel(d);
     deliveryManagerGetResult(d);
     pthread_mutex_destroy(&d->mutex);
@@ -780,11 +783,14 @@ Result deliveryManagerRequestRun(DeliveryManager *d) {
         printf("pthread_create() failed: %d\n", ret);
         return MAKERESULT(Module_Nim, NimError_UnknownError);
     }
+    else
+        d->thread_started = true;
 
     return 0;
 }
 
 void deliveryManagerCancel(DeliveryManager *d) {
+    if (!d->initialized) return;
     pthread_mutex_lock(&d->mutex);
     shutdownSocket(&d->listen_sockfd);
     shutdownSocket(&d->conn_sockfd);
@@ -794,6 +800,7 @@ void deliveryManagerCancel(DeliveryManager *d) {
 
 Result deliveryManagerGetResult(DeliveryManager *d) {
     Result rc=0;
+    if (!d->initialized || !d->thread_started) return 0;
     pthread_join(d->thread, NULL);
     pthread_mutex_lock(&d->mutex);
     rc = d->rc;

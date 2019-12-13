@@ -88,6 +88,8 @@ struct DeliveryContentEntry {
 typedef struct {
     pthread_mutex_t mutex;
     pthread_t thread;
+    bool initialized;
+    bool thread_started;
     bool cancel_flag;
     bool server;
     struct in_addr addr;
