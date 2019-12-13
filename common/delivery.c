@@ -1024,16 +1024,25 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
         else {
             if (strlen(dp->d_name) >= 32) {
                 bool found=0;
+                u32 name_type=0;
+                bool is_meta=0;
 
                 pos = strlen(dp->d_name)-4;
-                if (strlen(dp->d_name) == 32+4 && strncmp(&dp->d_name[pos], ".nca", 4)==0) found = 1;
+                if (strlen(dp->d_name) == 32+4 && strncmp(&dp->d_name[pos], ".nca", 4)==0) {
+                    found = 1;
+                    name_type = 0;
+                }
                 else {
                     pos = strlen(dp->d_name)-9;
-                    if (strlen(dp->d_name) == 32+9 && strncmp(&dp->d_name[pos], ".cnmt.nca", 9)==0) found = 1;
+                    if (strlen(dp->d_name) == 32+9 && strncmp(&dp->d_name[pos], ".cnmt.nca", 9)==0) {
+                        found = 1;
+                        name_type = 1;
+                    }
                 }
                 if (!found) {
                     pos = strlen(dp->d_name);
                     found = 1;
+                    name_type = 2;
                 }
 
                 int pos2=0;
@@ -1066,8 +1075,9 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
                 entry.content_info.info.size[4] = (u8)(tmpstat.st_size>>32);
                 entry.content_info.info.size[5] = (u8)(tmpstat.st_size>>40);
 
-                rc = meta_load(meta_load_userdata, &entry, tmp_path, &meta_buf, &meta_size);
-                if (R_SUCCEEDED(rc)) {
+                is_meta = name_type == 1 || (name_type == 2 && strncmp(dp->d_name, "ncatype0_", 9)==0);
+                if (is_meta) rc = meta_load(meta_load_userdata, &entry, tmp_path, &meta_buf, &meta_size);
+                if (R_SUCCEEDED(rc) && is_meta) {
                     rc = _deliveryManagerParseMeta(d, meta_buf, meta_size, &entry);
                     if (R_FAILED(rc)) {
                         TRACE(d, "_deliveryManagerParseMeta() failed (0x%x) with path: %s", rc, tmp_path);
@@ -1134,7 +1144,7 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
 
                 memset(contentid_str, 0, sizeof(contentid_str));
                 _deliveryManagerPrintContentId(contentid_str, &entry.content_info.info.content_id);
-                TRACE(d, "Adding (is_meta=%d) content entry with ContentId %s. meta_load() returned 0x%x. Path: %s", entry.is_meta, contentid_str, rc, tmp_path);
+                TRACE(d, "Adding (is_meta=%d, entry.is_meta=%d) content entry with ContentId %s. rc = 0x%x. Path: %s", is_meta, entry.is_meta, contentid_str, rc, tmp_path);
 
                 rc = _deliveryManagerAddContentEntry(d, &entry);
                 if (R_FAILED(rc)) break;
