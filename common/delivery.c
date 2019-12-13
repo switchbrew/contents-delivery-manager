@@ -105,9 +105,16 @@ static bool _deliveryManagerGetCancelled(DeliveryManager *d) {
 
 static Result _deliveryManagerGetSocketError(DeliveryManager *d, const char *msg) {
     Result rc=0;
+    #ifndef _WIN32
+    int tmp_errno = errno;
+    #endif
 
     if (_deliveryManagerGetCancelled(d)) rc = MAKERESULT(Module_Nim, NimError_DeliveryOperationCancelled);
     else {
+        #ifndef _WIN32
+        errno = tmp_errno;
+        #endif
+
         if (msg) socket_error(msg);
 
         #ifndef _WIN32
@@ -505,6 +512,7 @@ static void* _deliveryManagerServerTask(void* arg) {
 
     pthread_mutex_lock(&d->mutex);
     d->rc = rc;
+    d->thread_finished = true;
     pthread_mutex_unlock(&d->mutex);
     return NULL;
 }
@@ -806,6 +814,15 @@ Result deliveryManagerGetResult(DeliveryManager *d) {
     rc = d->rc;
     pthread_mutex_unlock(&d->mutex);
     return rc;
+}
+
+bool deliveryManagerCheckFinished(DeliveryManager *d) {
+    bool flag=0;
+    if (!d->initialized || !d->thread_started) return 0;
+    pthread_mutex_lock(&d->mutex);
+    flag = d->thread_finished;
+    pthread_mutex_unlock(&d->mutex);
+    return flag;
 }
 
 void deliveryManagerGetProgress(DeliveryManager *d, s64 *progress_current_size, s64 *progress_total_size) {

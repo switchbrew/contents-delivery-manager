@@ -90,6 +90,7 @@ typedef struct {
     pthread_t thread;
     bool initialized;
     bool thread_started;
+    bool thread_finished;
     bool cancel_flag;
     bool server;
     struct in_addr addr;
@@ -175,6 +176,9 @@ void deliveryManagerCancel(DeliveryManager *d);
 
 /// Wait for the server task to finish and returns the Result. Used by \ref deliveryManagerClose.
 Result deliveryManagerGetResult(DeliveryManager *d);
+
+/// Gets whether the server task thread finished running.
+bool deliveryManagerCheckFinished(DeliveryManager *d);
 
 /// Get the progress, only valid for server-mode.
 void deliveryManagerGetProgress(DeliveryManager *d, s64 *progress_current_size, s64 *progress_total_size);
