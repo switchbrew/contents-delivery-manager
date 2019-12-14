@@ -378,7 +378,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
     DeliveryMessageHeader recvhdr={0}, sendhdr={0};
 
     NcmContentMetaKey content_meta_key;
-    NcmPackagedContentInfo meta_content_record;
+    NcmPackagedContentInfo meta_content_info;
     DeliveryMessageGetContentArg arg;
     s64 content_size;
     s64 progress_value;
@@ -398,11 +398,11 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                 return 0;
             break;
 
-            case DeliveryMessageId_GetMetaContentRecord:
-                TRACE(d, "Processing DeliveryMessageId_GetMetaContentRecord...");
+            case DeliveryMessageId_GetMetaPackagedContentInfo:
+                TRACE(d, "Processing DeliveryMessageId_GetMetaPackagedContentInfo...");
 
                 memset(&content_meta_key, 0, sizeof(content_meta_key));
-                memset(&meta_content_record, 0, sizeof(meta_content_record));
+                memset(&meta_content_info, 0, sizeof(meta_content_info));
 
                 if (recvhdr.data_size != sizeof(content_meta_key))
                     rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
@@ -413,15 +413,15 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                 if (R_SUCCEEDED(rc)) {
                     TRACE(d, "content_meta_key: id = %016"PRIX64", version = v%u, type = 0x%x", content_meta_key.id, content_meta_key.version, content_meta_key.type);
 
-                    if (d->handler_get_meta_content_record) {
-                        rc = d->handler_get_meta_content_record(d->handler_get_meta_content_record_userdata, &meta_content_record, &content_meta_key);
-                        if (R_FAILED(rc)) TRACE(d, "handler_get_meta_content_record() failed: 0x%x.", rc);
+                    if (d->handler_get_meta_packaged_content_info) {
+                        rc = d->handler_get_meta_packaged_content_info(d->handler_get_meta_packaged_content_info_userdata, &meta_content_info, &content_meta_key);
+                        if (R_FAILED(rc)) TRACE(d, "handler_get_meta_packaged_content_info() failed: 0x%x.", rc);
                     }
                 }
 
                 if (R_SUCCEEDED(rc)) {
-                    _deliveryManagerCreateReplyMessageHeader(&sendhdr, recvhdr.id, sizeof(meta_content_record));
-                    rc = _deliveryManagerMessageSend(d, &sendhdr, &meta_content_record, sizeof(meta_content_record), NULL);
+                    _deliveryManagerCreateReplyMessageHeader(&sendhdr, recvhdr.id, sizeof(meta_content_info));
+                    rc = _deliveryManagerMessageSend(d, &sendhdr, &meta_content_info, sizeof(meta_content_info), NULL);
                 }
             break;
 
@@ -832,9 +832,9 @@ void deliveryManagerGetProgress(DeliveryManager *d, s64 *progress_current_size, 
     pthread_mutex_unlock(&d->mutex);
 }
 
-void deliveryManagerSetHandlerGetMetaContentRecord(DeliveryManager *d, DeliveryFnGetMetaContentRecord fn, void* userdata) {
-    d->handler_get_meta_content_record = fn;
-    d->handler_get_meta_content_record_userdata = userdata;
+void deliveryManagerSetHandlerGetMetaPackagedContentInfo(DeliveryManager *d, DeliveryFnGetMetaPackagedContentInfo fn, void* userdata) {
+    d->handler_get_meta_packaged_content_info = fn;
+    d->handler_get_meta_packaged_content_info_userdata = userdata;
 }
 
 void deliveryManagerSetHandlersGetContent(DeliveryManager *d, void* userdata, DeliveryFnContentTransferInit init_handler, DeliveryFnContentTransferExit exit_handler, DeliveryFnContentTransfer transfer_handler) {
@@ -852,27 +852,27 @@ Result deliveryManagerClientRequestExit(DeliveryManager *d) {
     return _deliveryManagerMessageSendHeader(d, &sendhdr);
 }
 
-Result deliveryManagerClientGetMetaContentRecord(DeliveryManager *d, DeliveryContentInfo *out, const NcmContentMetaKey *content_meta_key) {
+Result deliveryManagerClientGetMetaPackagedContentInfo(DeliveryManager *d, DeliveryContentInfo *out, const NcmContentMetaKey *content_meta_key) {
     Result rc=0;
     DeliveryMessageHeader sendhdr={0}, recvhdr={0};
-    NcmPackagedContentInfo record={0};
+    NcmPackagedContentInfo content_info={0};
 
     memset(out, 0, sizeof(*out));
     if (d->server) return MAKERESULT(Module_Nim, NimError_BadInput);
 
-    _deliveryManagerCreateRequestMessageHeader(&sendhdr, DeliveryMessageId_GetMetaContentRecord, sizeof(NcmContentMetaKey));
+    _deliveryManagerCreateRequestMessageHeader(&sendhdr, DeliveryMessageId_GetMetaPackagedContentInfo, sizeof(NcmContentMetaKey));
     rc = _deliveryManagerMessageSend(d, &sendhdr, content_meta_key, sizeof(NcmContentMetaKey), NULL);
     if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
     if (R_SUCCEEDED(rc) && recvhdr.id != sendhdr.id) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId);
-    if (R_SUCCEEDED(rc) && recvhdr.data_size != sizeof(record)) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
-    if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageReceiveData(d, &record, sizeof(record), sizeof(record), NULL);
+    if (R_SUCCEEDED(rc) && recvhdr.data_size != sizeof(content_info)) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);
+    if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageReceiveData(d, &content_info, sizeof(content_info), sizeof(content_info), NULL);
 
     if (R_SUCCEEDED(rc)) {
-        memcpy(&out->content_id, &record.info.content_id, sizeof(NcmContentId));
-        out->content_size = (s64)record.info.size[0x0] | ((s64)record.info.size[0x1]<<8) | ((s64)record.info.size[0x2]<<16) | ((s64)record.info.size[0x3]<<24) | ((s64)record.info.size[0x4]<<32) | ((s64)record.info.size[0x5]<<40);
+        memcpy(&out->content_id, &content_info.info.content_id, sizeof(NcmContentId));
+        out->content_size = (s64)content_info.info.size[0x0] | ((s64)content_info.info.size[0x1]<<8) | ((s64)content_info.info.size[0x2]<<16) | ((s64)content_info.info.size[0x3]<<24) | ((s64)content_info.info.size[0x4]<<32) | ((s64)content_info.info.size[0x5]<<40);
         out->unk_x28 = 0x101;
         memcpy(&out->content_meta_key, content_meta_key, sizeof(*content_meta_key));
-        memcpy(out->hash, record.hash, sizeof(record.hash));
+        memcpy(out->hash, content_info.hash, sizeof(content_info.hash));
     }
 
     return rc;

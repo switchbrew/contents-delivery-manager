@@ -16,8 +16,8 @@
 struct DeliveryGetContentDataTransferState;
 struct DeliveryContentEntry;
 
-/// Handler func for GetMetaContentRecord, params: (userdata, output NcmPackagedContentInfo, input NcmContentMetaKey).
-typedef Result (*DeliveryFnGetMetaContentRecord)(void*, NcmPackagedContentInfo*, const NcmContentMetaKey*);
+/// Handler func for GetMetaPackagedContentInfo, params: (userdata, output NcmPackagedContentInfo, input NcmContentMetaKey).
+typedef Result (*DeliveryFnGetMetaPackagedContentInfo)(void*, NcmPackagedContentInfo*, const NcmContentMetaKey*);
 
 /// Data transfer func, params: (userdata, buffer, size, offset)
 typedef Result (*DeliveryFnDataTransfer)(void*, void*, u64, s64);
@@ -59,11 +59,11 @@ enum {
 
 /// DeliveryMessageId
 typedef enum {
-    DeliveryMessageId_Exit                 = 0,
-    DeliveryMessageId_GetMetaContentRecord = 1,
-    DeliveryMessageId_GetContent           = 2,
-    DeliveryMessageId_GetCommonTicket      = 3,
-    DeliveryMessageId_UpdateProgress       = 4,
+    DeliveryMessageId_Exit                       = 0,
+    DeliveryMessageId_GetMetaPackagedContentInfo = 1,
+    DeliveryMessageId_GetContent                 = 2,
+    DeliveryMessageId_GetCommonTicket            = 3,
+    DeliveryMessageId_UpdateProgress             = 4,
 } DeliveryMessageId;
 
 /// DeliveryDataTransfer
@@ -106,8 +106,8 @@ typedef struct {
     void* workbuf;
     size_t workbuf_size;
 
-    DeliveryFnGetMetaContentRecord handler_get_meta_content_record;
-    void* handler_get_meta_content_record_userdata;
+    DeliveryFnGetMetaPackagedContentInfo handler_get_meta_packaged_content_info;
+    void* handler_get_meta_packaged_content_info_userdata;
 
     struct {
         void* userdata;
@@ -146,7 +146,7 @@ struct DeliveryGetContentDataTransferState {
 typedef struct {
     NcmContentId content_id;                 ///< NcmContentId. Loaded from NcmPackagedContentInfo and used with DeliveryMessageGetContentArg::content_id.
     s64 content_size;                        ///< Content size. Loaded from NcmPackagedContentInfo.
-    NcmContentMetaKey content_meta_key;      ///< NcmContentMetaKey. Loaded from deliveryManagerClientGetMetaContentRecord input.
+    NcmContentMetaKey content_meta_key;      ///< NcmContentMetaKey. Loaded from deliveryManagerClientGetMetaPackagedContentInfo input.
     u16 unk_x28;
     u8 unk_x2a[2];
     u8 progress_flag;                        ///< Used with DeliveryMessageGetContentArg::flag.
@@ -183,8 +183,8 @@ bool deliveryManagerCheckFinished(DeliveryManager *d);
 /// Get the progress, only valid for server-mode.
 void deliveryManagerGetProgress(DeliveryManager *d, s64 *progress_current_size, s64 *progress_total_size);
 
-/// Sets the server handler for GetMetaContentRecord.
-void deliveryManagerSetHandlerGetMetaContentRecord(DeliveryManager *d, DeliveryFnGetMetaContentRecord fn, void* userdata);
+/// Sets the server handler for GetMetaPackagedContentInfo.
+void deliveryManagerSetHandlerGetMetaPackagedContentInfo(DeliveryManager *d, DeliveryFnGetMetaPackagedContentInfo fn, void* userdata);
 
 /// Sets the server/client handlers for GetContent.
 void deliveryManagerSetHandlersGetContent(DeliveryManager *d, void* userdata, DeliveryFnContentTransferInit init_handler, DeliveryFnContentTransferExit exit_handler, DeliveryFnContentTransfer transfer_handler);
@@ -193,7 +193,7 @@ void deliveryManagerSetHandlersGetContent(DeliveryManager *d, void* userdata, De
 Result deliveryManagerClientRequestExit(DeliveryManager *d);
 
 /// Client-mode only. Gets the DeliveryContentInfo for the specified ContentMetaKey.
-Result deliveryManagerClientGetMetaContentRecord(DeliveryManager *d, DeliveryContentInfo *out, const NcmContentMetaKey *content_meta_key);
+Result deliveryManagerClientGetMetaPackagedContentInfo(DeliveryManager *d, DeliveryContentInfo *out, const NcmContentMetaKey *content_meta_key);
 
 /// Client-mode only. Gets the content data using the specified DeliveryContentInfo. See deliveryManagerSetHandlersGetContent.
 Result deliveryManagerClientGetContent(DeliveryManager *d, const DeliveryContentInfo *info);

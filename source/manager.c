@@ -55,12 +55,12 @@ Result handler_meta_load(void* userdata, struct DeliveryContentEntry *entry, con
     return rc;
 }
 
-Result handler_meta_record(void* userdata, NcmPackagedContentInfo* record, const NcmContentMetaKey* content_meta_key) {
+Result handler_meta_packaged_content_info(void* userdata, NcmPackagedContentInfo* meta_content_info, const NcmContentMetaKey* content_meta_key) {
     Result rc=0;
     struct DeliveryContentEntry *entry = NULL;
 
     rc = deliveryManagerGetContentEntry((DeliveryManager*)userdata, &entry, content_meta_key, NULL);
-    if (R_SUCCEEDED(rc)) memcpy(record, &entry->content_info, sizeof(NcmPackagedContentInfo));
+    if (R_SUCCEEDED(rc)) memcpy(meta_content_info, &entry->content_info, sizeof(NcmPackagedContentInfo));
     return rc;
 }
 
@@ -254,7 +254,7 @@ int main(int argc, char **argv) {
         if (R_FAILED(rc)) printf("deliveryManagerCreate() failed: 0x%x\n", rc);
         if (R_SUCCEEDED(rc)) {
             if (log_file) deliveryManagerSetLogFile(&manager, log_file);
-            deliveryManagerSetHandlerGetMetaContentRecord(&manager, handler_meta_record, &manager);
+            deliveryManagerSetHandlerGetMetaPackagedContentInfo(&manager, handler_meta_packaged_content_info, &manager);
             deliveryManagerSetHandlersGetContent(&manager, &transfer_state, content_transfer_init, content_transfer_exit, content_transfer);
             if (server) {
                 printf("Scanning datadir...\n");
