@@ -51,7 +51,7 @@ enum {
     NimError_UnknownError=5020,               ///< Too many internal output entries with nim cmd42, system is Internet-connected, or an unrecognized socket error occured.
     NimError_DeliveryConnectionTimeout=5100,  ///< Connection timeout.
     NimError_DeliveryBadMessageId=5410,       ///< Invalid ID.
-    NimError_DeliveryBadMessageMagicnum=5420, ///< Invalid magicnum.
+    NimError_DeliveryBadMessageMagicnum=5420, ///< Invalid magicnum. Can also be caused by the connection being closed by the peer, since non-negative return values from recv() are ignored in this case.
     NimError_DeliveryBadMessageDataSize=5430, ///< Invalid data_size.
     NimError_DeliveryBadContentMetaKey=5440,  ///< The input ContentMetaKey doesn't match the ContentMetaKey in state.
     NimError_DeliveryBadMessageMetaSize=5450, ///< Invalid meta_size.
