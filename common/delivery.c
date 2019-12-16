@@ -1168,9 +1168,13 @@ Result deliveryManagerScanDataDir(DeliveryManager *d, const char *dirpath, s32 d
 
                 memset(contentid_str, 0, sizeof(contentid_str));
                 _deliveryManagerPrintContentId(contentid_str, &entry.content_info.info.content_id);
-                TRACE(d, "Adding (is_meta=%d, entry.is_meta=%d) content entry with ContentId %s. rc = 0x%x. Path: %s", is_meta, entry.is_meta, contentid_str, rc, tmp_path);
 
-                rc = _deliveryManagerAddContentEntry(d, &entry);
+                if (R_SUCCEEDED(rc)) {
+                    TRACE(d, "Adding (is_meta=%d, entry.is_meta=%d) content entry with ContentId %s. Path: %s", is_meta, entry.is_meta, contentid_str, tmp_path);
+                    rc = _deliveryManagerAddContentEntry(d, &entry);
+                }
+                else
+                    TRACE(d, "load_meta() failed. is_meta=%d, entry.is_meta=%d. ContentId: %s. rc = 0x%x. Path: %s", is_meta, entry.is_meta, contentid_str, rc, tmp_path);
                 if (R_FAILED(rc)) break;
             }
         }
