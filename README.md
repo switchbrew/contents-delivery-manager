@@ -38,5 +38,5 @@ The common/ directory can be used externally, [nssu-updater](https://github.com/
 
 #### Credits
 
-* This uses the SHA256 implementation from [nettle](https://git.lysator.liu.se/nettle/nettle), bundled under common/. This is only used on pc, on Switch libnx is used.
+* This uses the SHA256 implementation from [nettle](https://git.lysator.liu.se/nettle/nettle), bundled under common/nettle/. This is only used on pc, on Switch libnx is used.
 

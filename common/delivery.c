@@ -26,7 +26,7 @@ typedef uint32_t in_addr_t;
 #endif
 
 #ifndef __SWITCH__
-#include "sha2.h"
+#include "nettle/sha2.h"
 #else
 #include "switch/crypto/sha256.h"
 #endif
