@@ -34,6 +34,8 @@ TODO
 ### Building
 `./autogen.sh && mkdir build && cd build && ../configure && make`
 
+Building requires [libnx](https://switchbrew.org/wiki/Setting_up_Development_Environment).
+
 The common/ directory can be used externally, [nssu-updater](https://github.com/switchbrew/nssu-updater) uses this.
 
 #### Credits
