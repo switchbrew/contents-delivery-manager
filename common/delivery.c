@@ -362,7 +362,7 @@ static Result _deliveryManagerGetContentTransferHandler(void* userdata, void* bu
 
     if (R_SUCCEEDED(rc) && transfer_state->arg->flag == 0) {
         pthread_mutex_lock(&d->mutex);
-        d->progress_total_size+=size;
+        d->progress_current_size+=size;
         pthread_mutex_unlock(&d->mutex);
     }
 
@@ -456,7 +456,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
 
                 if (R_SUCCEEDED(rc) && arg.flag == 0) {
                     pthread_mutex_lock(&d->mutex);
-                    TRACE(d, "progress_total_size = 0x%"PRIx64, d->progress_total_size);
+                    TRACE(d, "progress_current_size = 0x%"PRIx64, d->progress_current_size);
                     pthread_mutex_unlock(&d->mutex);
                 }
             break;
@@ -476,8 +476,8 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
 
                 if (R_SUCCEEDED(rc)) {
                     pthread_mutex_lock(&d->mutex);
-                    d->progress_current_size = le_dword(progress_value);
-                    TRACE(d, "progress_current_size = 0x%"PRIx64, d->progress_current_size);
+                    d->progress_total_size = le_dword(progress_value);
+                    TRACE(d, "progress_total_size = 0x%"PRIx64, d->progress_current_size);
                     pthread_mutex_unlock(&d->mutex);
                 }
 
@@ -904,16 +904,16 @@ Result deliveryManagerClientGetContent(DeliveryManager *d, const DeliveryContent
 
 // We don't support a client impl for DeliveryMessageId_GetCommonTicket.
 
-Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_current_size) {
+Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_total_size) {
     Result rc=0;
     DeliveryMessageHeader sendhdr={0}, recvhdr={0};
     if (d->server) return MAKERESULT(Module_Nim, NimError_BadInput);
 
     // nim would load "nim.errorsimulate!error_localcommunication_result" into rc here and return it if needed, we won't do an equivalent.
 
-    _deliveryManagerCreateRequestMessageHeader(&sendhdr, DeliveryMessageId_UpdateProgress, sizeof(progress_current_size));
-    progress_current_size = le_dword(progress_current_size);
-    rc = _deliveryManagerMessageSend(d, &sendhdr, &progress_current_size, sizeof(progress_current_size), NULL); // nim loads progress_current_size from state.
+    _deliveryManagerCreateRequestMessageHeader(&sendhdr, DeliveryMessageId_UpdateProgress, sizeof(progress_total_size));
+    progress_total_size = le_dword(progress_total_size);
+    rc = _deliveryManagerMessageSend(d, &sendhdr, &progress_total_size, sizeof(progress_total_size), NULL); // nim loads progress_total_size from state.
     if (R_SUCCEEDED(rc)) rc = _deliveryManagerMessageReceiveHeader(d, &recvhdr);
     if (R_SUCCEEDED(rc) && recvhdr.id != sendhdr.id) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageId);
     if (R_SUCCEEDED(rc) && recvhdr.data_size != 0) rc = MAKERESULT(Module_Nim, NimError_DeliveryBadMessageDataSize);

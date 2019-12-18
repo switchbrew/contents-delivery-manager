@@ -198,8 +198,8 @@ Result deliveryManagerClientGetMetaPackagedContentInfo(DeliveryManager *d, Deliv
 /// Client-mode only. Gets the content data using the specified DeliveryContentInfo. See deliveryManagerSetHandlersGetContent.
 Result deliveryManagerClientGetContent(DeliveryManager *d, const DeliveryContentInfo *info);
 
-/// Client-mode only. Update the server progress_current_size.
-Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_current_size);
+/// Client-mode only. Update the server progress_total_size.
+Result deliveryManagerClientUpdateProgress(DeliveryManager *d, s64 progress_total_size);
 
 /// Helper func for use by \ref DeliveryFnMetaLoad. dirpath is the dirpath for the Meta content fs.
 Result deliveryManagerLoadMetaFromFs(const char *dirpath, void** outbuf_ptr, size_t *out_filesize, bool deleteflag);
