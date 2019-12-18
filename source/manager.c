@@ -120,7 +120,7 @@ void showHelp() {
     puts("--client,  -c   Run as a client.");
     puts("--address, -a   Hostname or IPv4 address to bind/connect to. With server the default is 0.0.0.0.");
     puts("--port,    -p   Port, the default is 55556.");
-    puts("--datadir, -d   Sysupdate data dir path.");
+    puts("--datadir, -d   Sysupdate data dir path. Required with server-mode.");
     puts("--depth,   -e   Sysupdate data dir scanning depth, the default is 3.");
     puts("--tmpdir,  -t   Temporary directory path used during datadir scanning, this will be automatically deleted when usage is finished. The default is 'tmpdir'.");
     puts("\n");
@@ -142,6 +142,8 @@ int main(int argc, char **argv) {
     FILE *log_file = NULL;
     const char *log_filepath = NULL;
     char *tmpdir_path = "tmpdir";
+
+    printf("contents_delivery_manager v%s\n", VERSION);
 
     if (argc < 2) {
         showHelp();
