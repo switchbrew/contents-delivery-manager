@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <limits.h>
 
 #ifndef __WIN32__
 #include <sys/socket.h>
