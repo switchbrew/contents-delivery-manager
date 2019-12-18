@@ -20,7 +20,7 @@ Usage: contents_delivery_manager [options]
 
 Only server-mode should be used, client-mode is for testing. `--datadir` is required for server-mode. Example command: `./contents_delivery_manager --datadir {path} --log[=path]`
 
-The datadir is the directory containing the sysupdate content data. The datadir is scanned recursively with a maximum depth of {see --depth option}. Content filenames must be one of the following: `*{hex ContentId}`, `{hex ContentId}.nca`, or `{hex ContentId}.cnmt.nca`. Meta content must have filenames `ncatype0_*{hex ContentId}` (where `*` is ignored), or `{hex ContentId}.cnmt.nca`.
+The datadir is the directory containing the sysupdate content data. The datadir is scanned recursively with a maximum depth of {see --depth option}. During scanning files/directories which have a name starting with '.' are ignored. Content filenames must be one of the following: `*{hex ContentId}`, `{hex ContentId}.nca`, or `{hex ContentId}.cnmt.nca`. Meta content must have filenames `ncatype0_*{hex ContentId}` (where `*` is ignored), or `{hex ContentId}.cnmt.nca`.
 
 During Meta loading with datadir-scanning the Meta content is extracted using [hactool](https://github.com/SciresM/hactool) (see the `--tmpdir` option): you must have keys setup for decrypting [1.0.0+] content.
 
