@@ -26,6 +26,8 @@ During Meta loading with datadir-scanning the Meta content is extracted using [h
 
 All content required for installing the sysupdate requested by the client must be present in the datadir: if the client is more than 1 system-version behind the requested version, make sure the content for those versions are also present if there isn't a newer version of that content.
 
+Like [nim](https://switchbrew.org/wiki/NIM_services#Contents_Delivery), this server implementation only supports 1 client. When finished with the client connection, the server will stop running.
+
 Check the log when issues occur. For error-codes, see [switchbrew](https://switchbrew.org/wiki/Error_codes).
 
 ### Download
