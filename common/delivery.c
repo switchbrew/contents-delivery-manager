@@ -478,7 +478,7 @@ static Result _deliveryManagerServerTaskMessageHandler(DeliveryManager *d) {
                 if (R_SUCCEEDED(rc)) {
                     pthread_mutex_lock(&d->mutex);
                     d->progress_total_size = le_dword(progress_value);
-                    TRACE(d, "progress_total_size = 0x%"PRIx64, d->progress_current_size);
+                    TRACE(d, "progress_total_size = 0x%"PRIx64, d->progress_total_size);
                     pthread_mutex_unlock(&d->mutex);
                 }
 
