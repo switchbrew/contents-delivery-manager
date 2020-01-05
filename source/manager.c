@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <stdint.h>
 #include <inttypes.h>
 #include <getopt.h>
@@ -11,16 +10,26 @@
 #include <limits.h>
 
 #ifndef __WIN32__
+
+#include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
+
 #else
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <direct.h>
+
 typedef int socklen_t;
 typedef uint32_t in_addr_t;
-#endif
+
+
+#define mkdir(dir, mode) _mkdir(dir)
+
+#endif // __WIN32__
 
 #include "../common/delivery.h"
 
@@ -41,11 +50,7 @@ Result handler_meta_load(void* userdata, struct DeliveryContentEntry *entry, con
     snprintf(redir_path, sizeof(redir_path)-1, "%s/hactool_out", tmpdir);
     snprintf(tmpstr, sizeof(tmpstr)-1, "hactool \"--section0dir=%s\" \"%s\" > \"%s\" 2>&1", dirpath, filepath, redir_path);
 
-#ifdef _WIN32
-    _mkdir(tmpdir);
-#else
     mkdir(tmpdir, 0777);
-#endif
 
     if (system(tmpstr) != 0) return MAKERESULT(Module_Nim, NimError_BadInput);
 
