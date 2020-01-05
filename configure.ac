@@ -26,6 +26,12 @@ case "$host" in
       ;;
 esac
 
+case "$host" in
+   i686-*-mingw*)
+      CFLAGS="$CFLAGS -D\"__int128_t=struct __int128_t\" -D\"__uint128_t=struct __uint128_t\""
+      ;;
+esac
+
 CFLAGS="$CFLAGS -std=gnu99 -iquote $DEVKITPRO/libnx/include"
 
 AC_SUBST(NET_LIBS)
