@@ -18,11 +18,11 @@ Usage: contents_delivery_manager [options]
 --tmpdir,  -t   Temporary directory path used during datadir scanning, this will be automatically deleted when usage is finished. The default is 'tmpdir'.
 ```
 
-Only server-mode should be used, client-mode is for testing. `--datadir` is required for server-mode. Example command: `./contents_delivery_manager --datadir {path} --log[=path]`
+Only server-mode should be used, client-mode is for testing. `--datadir` is required for server-mode. Example command: `contents_delivery_manager -s --datadir {path} --log[=path]`
 
 The datadir is the directory containing the sysupdate content data. The datadir is scanned recursively with a maximum depth of {see --depth option}. During scanning files/directories which have a name starting with '.' are ignored. Content filenames must be one of the following: `*{hex ContentId}`, `{hex ContentId}.nca`, or `{hex ContentId}.cnmt.nca`. Meta content must have filenames `ncatype0_*{hex ContentId}` (where `*` is ignored), or `{hex ContentId}.cnmt.nca`.
 
-During Meta loading with datadir-scanning the Meta content is extracted using [hactool](https://github.com/SciresM/hactool) (see the `--tmpdir` option): you must have keys setup for decrypting [1.0.0+] content.
+During Meta loading with datadir-scanning the Meta content is extracted using [hactool](https://github.com/SciresM/hactool) (see the `--tmpdir` option): you must have keys setup for decrypting [1.0.0+] content. The hactool executable must be located in `$PATH`, make sure running `hactool {content}.cnmt.nca` works without throwing errors. The hactool package is automatically installed when installing the contents-delivery-manager package (see the below Download section).
 
 All content required for installing the sysupdate requested by the client must be present in the datadir: if the client is more than 1 system-version behind the requested version, make sure the content for those versions are also present if there isn't a newer version of that content.
 
@@ -31,7 +31,7 @@ Like [nim](https://switchbrew.org/wiki/NIM_services#Contents_Delivery), this ser
 Check the log when issues occur. For error-codes, see [switchbrew](https://switchbrew.org/wiki/Error_codes).
 
 ### Download
-TODO
+With the [toolchain](https://devkitpro.org/wiki/Getting_Started) setup, run `sudo (dkp-)pacman -S contents-delivery-manager` to install. Make sure your `$PATH` includes `$DEVKITPRO/tools/bin`.
 
 ### Building
 `./autogen.sh && mkdir build && cd build && ../configure && make`
